@@ -1,3 +1,7 @@
+
+
+#ifndef sampleequation
+#define sampleequation
 #define sample_height height_letter
 #define number_of_samples 72//число эталонов
 
@@ -2023,3 +2027,6 @@ static uint32_t sample[][sample_height] = {
 0x00000000, //                                 
 },
 };
+
+
+#endif

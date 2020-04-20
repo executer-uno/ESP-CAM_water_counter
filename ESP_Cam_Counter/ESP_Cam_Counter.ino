@@ -32,6 +32,9 @@ TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, 0
 #include "virtuino_pins.h"
 
 #include "time.h"
+
+#include "Credentials.h"
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 7200;
 const int   daylightOffset_sec = 3600; //летнее время 3600;
@@ -72,7 +75,7 @@ uint8_t result[average_count][number_letter]; //накопление резул�
 
 uint16_t *frame_buf; //указатель на буфер для накопления кадров камеры
 
-#define max_shift 9*3 //число вариантов сдвига перемещения эталона  
+#define max_shift 9*3 //число вариантов сдвига перемещения эталона
 int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
   {0, 0},
   {0, 1},   //up
@@ -123,8 +126,8 @@ camera_fb_t * fb; //для работы камеры указатель на с�
 sensor_t * s; //для работы камеры указаитель на структуру сенсора
 
 // Replace with your network credentials
-const char* ssid = "***********************";
-const char* password = "*****************";
+const char* ssid 		= MY_WIFI;
+const char* password 	= MY_PASS;
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -150,9 +153,9 @@ const char* password = "*****************";
 #define PCLK_GPIO_NUM     22
 
 
-static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-static const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
-static const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
+const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
+const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
 
 httpd_handle_t stream_httpd = NULL;
 
@@ -160,7 +163,7 @@ httpd_handle_t stream_httpd = NULL;
 
 Ticker Gas_minute_Ticker; //используется для расчета объма газа каждую минуту
 
-#define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ... 
+#define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ...
 
 //структура для сохранения информации о расчете объема газа
 struct Gas_struct {
