@@ -1,18 +1,7 @@
-/*
- * virtuino_pins.h
- *
- *  Created on: Apr 19, 2020
- *      Author: E_CAD
- */
-
-#ifndef VIRTUINO_PINS_H_
-#define VIRTUINO_PINS_H_
-
-
 //---VirtuinoCM  Library settings --------------
 #include "VirtuinoCM.h"
 VirtuinoCM virtuino;
-#define V_memory_count 32          // the size of V memory. You can change it to a number <=255)
+#define V_memory_count 64          // the size of V memory. You can change it to a number <=255)
 float V[V_memory_count];           // This array is synchronized with Virtuino V memory. You can change the type to int, long etc.
 //---
 boolean debug = false;              // set this variable to false on the finale code to decrease the request time.
@@ -28,8 +17,8 @@ WiFiServer server(80);                   // Default Virtuino Server port
 #define V_offset_y                2 //V2 - смещенее по оси Y при суммировании кадров и отображении на дисплее 75 85 87
 #define V_offset_x                3 //V3 - смещенее по оси X при суммировании кадров и отображении на дисплее
 #define V_level_dispalay_ttf_B_W  4 //V4 - Доп. уровень бинаризации для дисплея 15
-#define V_level_find_digital_Y     5 //V5 - Доп. уровень бинаризации для поиска цифр по y
-#define V_level_find_digital_X    6 //V6 - Доп. уровень бинаризации для поиска цифр по X
+#define V_level_find_digital_Y     5 //V5 - Доп. уровень бинаризации для поиска цифр по y 
+#define V_level_find_digital_X    6 //V6 - Доп. уровень бинаризации для поиска цифр по X 
 
 #define V_level_convert_to_32     7 //V7 - Доп. уровень бинаризации при конвертации в 32 бита
 
@@ -54,12 +43,14 @@ WiFiServer server(80);                   // Default Virtuino Server port
 #define V_D6                     24 //V24 - опознанная цифра 7
 #define V_D7                     25 //V25 - опознанная цифра 8
 
-#define V_26_error_recognition   26 //V26 - ошибки распознавания по сравнению с предыдущим
-#define V_27                     27 //V27 -
-#define V_28                     28 //V28 -
-#define V_29                     29 //V29 -
-#define V_30                     30 //V30 -
-#define V_Total_run              31 //V31 -
+#define V_error_recognition      26 //V26 - ошибки распознавания по сравнению с предыдущим
+#define V_offset_y_test          27 //V27 - дополнительное смещение по оси Y
+#define V_Sum_min_Hemming        28 //V28 - суммарное значенее всех расстояний Хемминга
+#define V_RESTART                29 //V29  software restart
+#define V_m3_m                   30 //V30 - текущее значенее объема газа за 1 минуту
+#define V_offset_y_current       31 //V31 - текущее дополнительное смещение по оси Y
+#define V_Sum_min_Hemming_current 32 //V32 - суммарное значенее всех расстояний Хемминга
+#define V_Sum_min_Hemming_error  33 //V33 - ошибки большое суумарное значение расстояния Хемминга
 
 
 String T_0 = "";                    // результаты распознавания
@@ -69,7 +60,7 @@ String T_2 = "";                    // частоты повторения ци�
 //предопределенные значения
 #define old_number_of_sum_frames 5 //число кадров суммирования
 
-#define old_offset_y 83 //смещенее по оси Y при суммировании кадров и отображении на дисплее 54  86
+#define old_offset_y 83 //смещенее по оси Y при суммировании кадров и отображении на дисплее 54  86 
 #define old_offset_x  0 //смещенее по оси X при суммировании кадров и отображении на дисплее
 
 #define old_level_dispalay_ttf_B_W 30 //Доп. уровень бинаризации для дисплея 30
@@ -126,7 +117,7 @@ bool check_limits(float &V_test, uint8_t V_max, uint8_t V_min, uint8_t V_set, ui
     if (EEPROM.readByte(V_addr) != (uint8_t)(V_test)) //если значение в памяти не совпадает записать
     {
       EEPROM.writeByte(V_addr, (uint8_t)(V_test));
-      printf("Установить и сохранить значение: V_set %d\tV_test %d\tV_MI %d\tV_addr %d\n", V_set, (uint8_t)(V_test), V_MI, V_addr);
+      printf("Установить и сохранить значение: V_set %d\tV_test %d\tV_MI %d\tV_addr %d\n", V_set, (uint8_t)(V_test), V_MI, V_addr);      
       return true;
     }
     else
@@ -140,7 +131,7 @@ void change_variables(bool read_from_memory)
 //read_from_memory true восстановить из памяти
 {
   boolean write_EEPROM_flag = false;
-
+  
   //смещенее по оси Y при суммировании кадров и отображении на дисплее 20 250
   if (read_from_memory) V[V_offset_y] = EEPROM.readByte(offset_y_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_offset_y], 250, 20, old_offset_y, V_offset_y, offset_y_addr);
@@ -148,11 +139,11 @@ void change_variables(bool read_from_memory)
   //смещенее по оси X при суммировании кадров и отображении на дисплее 0 - 50
   if (read_from_memory) V[V_offset_x] = EEPROM.readByte(offset_x_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_offset_x], 50, 0, old_offset_x, V_offset_x, offset_x_addr);
-
+  
   //Доп. уровень бинаризации для поиска цифр по y 30
   if (read_from_memory) V[V_level_find_digital_Y] = EEPROM.readByte(level_find_digital_Y_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_level_find_digital_Y], 100, 0, old_level_find_digital_Y, V_level_find_digital_Y, level_find_digital_Y_addr);
-
+    
  //Доп. уровень бинаризации для поиска цифр по X 60 70 80
   if (read_from_memory) V[V_level_find_digital_X] = EEPROM.readByte(level_find_digital_X_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_level_find_digital_X], 150, 0, old_level_find_digital_X, V_level_find_digital_X, level_find_digital_X_addr);
@@ -160,7 +151,7 @@ void change_variables(bool read_from_memory)
  //Доп. уровень бинаризации при конвертации в 32 бита 15 73 25 50
   if (read_from_memory) V[V_level_convert_to_32] = EEPROM.readByte(level_convert_to_32_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_level_convert_to_32], 150, 0, old_level_convert_to_32, V_level_convert_to_32, level_convert_to_32_addr);
-
+  
  //Положенее шторки сверху Y_up 23
   if (read_from_memory) V[V_level_Y_up] = EEPROM.readByte(level_Y_up_addr); //восстановить значение из памяти
   write_EEPROM_flag |= check_limits(V[V_level_Y_up], 100, 10, old_level_Y_up, V_level_Y_up, level_Y_up_addr);
@@ -181,14 +172,14 @@ void change_variables(bool read_from_memory)
 //================================================================= init_V
 void init_V() {
   boolean write_EEPROM_flag = false;
-
+  
   //инициализация переменных
   change_variables(true);
 
   V[V_number_of_sum_frames] = old_number_of_sum_frames; //число кадров суммирования
 //  V[V_level_dispalay_ttf_B_W] = old_level_dispalay_ttf_B_W; //Доп. уровень бинаризации для дисплея 15
-  V[V_level_dispalay_ttf_B_W] = V[V_level_convert_to_32]; //Доп. уровень бинаризации для дисплея совпдает с уровнем уровень бинаризации при конвертации в 32 бита
-
+  V[V_level_dispalay_ttf_B_W] = V[V_level_convert_to_32]; //Доп. уровень бинаризации для дисплея совпдает с уровнем уровень бинаризации при конвертации в 32 бита  
+    
 
   V[V_show_digital] = 8;  //V10 - номер цифры какую выводим на экран для сравнения 8 - нет вывода
   V[V_offset_x_digital] = 0; //V11 - смещенее по оси X при отображении на дисплеи для анализа 50 100 150
@@ -197,8 +188,18 @@ void init_V() {
   V[V_SH_HEX] = 0; //V14 - вывод на монитор в HEX цифр шкалы
   V[V_SH_M3] = 0; //V15 - вывод на монитор результатов накопленного газа
 
-  V[V_26_error_recognition] = 0.0; //ошибки распознавания нет
+  V[V_error_recognition] = 0.0; //ошибки распознавания нет
 
+  V[V_offset_y_test] = 0.0; //дополнительное смещение по оси Y
+  V[V_offset_y_current] = 0.0; //дополнительное смещение по оси Y
+  V[V_Sum_min_Hemming_current] = 0;
+  V[V_Sum_min_Hemming] = 0;
+  V[V_Sum_min_Hemming_error] = 0;
+
+  
+  V[V_RESTART] = 0; //сбросить клавишу рестарта
+
+  V[V_m3_m] = 0;
 }
 //================================================================= init_V
 
@@ -305,6 +306,3 @@ void vDelay(int delayInMillis) {
 }
 
 //================================================================= vDelay
-
-
-#endif /* VIRTUINO_PINS_H_ */

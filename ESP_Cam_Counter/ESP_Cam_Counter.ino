@@ -1,15 +1,3 @@
-/*
- * ESP_Cam_Counter.ino
- *
- *  Created on: Apr 19, 2020
- *      Author: E_CAD
- */
-
-// Project major reference to
-// http://forum.arduino.ua/viewtopic.php?pid=31172
-
-
-
 /*********
   Rui Santos
   Complete project details at https://RandomNerdTutorials.com/esp32-cam-video-streaming-web-server-camera-home-assistant/
@@ -21,8 +9,8 @@
 #include "img_converters.h"
 #include "Arduino.h"
 #include "fb_gfx.h"
-#include "soc/soc.h" 			//disable brownout problems
-#include "soc/rtc_cntl_reg.h"  	//disable brownout problems
+#include "soc/soc.h" //disable brownout problems
+#include "soc/rtc_cntl_reg.h"  //disable brownout problems
 #include "esp_http_server.h"
 
 #include "TFT_22_ILI9225.h"
@@ -34,9 +22,9 @@
 #include "fonts/FreeSansBold24pt7b.h"
 
 #define TFT_CS         15
-#define TFT_RST        -1 //
-#define TFT_RS         2 //RS
-#define TFT_SDI 12  // Data out SDA MOSI SDI
+#define TFT_RST        13 // -1
+#define TFT_RS         2 //RS 
+#define TFT_SDI 12  // Data out SDA MOSI SDI 
 #define TFT_CLK 14  // Clock out CLK
 
 TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, 0, 200);
@@ -84,7 +72,7 @@ uint8_t result[average_count][number_letter]; //накопление резул�
 
 uint16_t *frame_buf; //указатель на буфер для накопления кадров камеры
 
-#define max_shift 9*3 //число вариантов сдвига перемещения эталона
+#define max_shift 9*3 //число вариантов сдвига перемещения эталона  
 int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
   {0, 0},
   {0, 1},   //up
@@ -129,12 +117,14 @@ struct Hemming_struct { //структура расстояний Хемминг
 
 uint8_t frequency[number_of_samples][number_letter]; //подсчет максимального числа совпадений результатов распознавания
 
+uint32_t used_samples[number_of_samples][number_letter]; //частота использования эталона
+
 camera_fb_t * fb; //для работы камеры указатель на структуру буфер
 sensor_t * s; //для работы камеры указаитель на структуру сенсора
 
 // Replace with your network credentials
-const char* ssid = "********";
-const char* password = "*********";
+const char* ssid = "***********************";
+const char* password = "*****************";
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -160,9 +150,9 @@ const char* password = "*********";
 #define PCLK_GPIO_NUM     22
 
 
-const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
-const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
-const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
+static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
+static const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
+static const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
 
 httpd_handle_t stream_httpd = NULL;
 
@@ -170,7 +160,7 @@ httpd_handle_t stream_httpd = NULL;
 
 Ticker Gas_minute_Ticker; //используется для расчета объма газа каждую минуту
 
-#define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ...
+#define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ... 
 
 //структура для сохранения информации о расчете объема газа
 struct Gas_struct {
@@ -180,6 +170,7 @@ struct Gas_struct {
 
 uint16_t position_m3 = 0; //позиция сохранения данных
 
+int offset_y_current; //текущее дополнительное смещение по оси Y
 
 //---------------------------------------------------- m3_calculate
 void m3_calculate() {
@@ -192,8 +183,10 @@ void m3_calculate() {
 
   for (uint8_t dig = 0; dig < number_letter - 1; dig++) { //проверка на все кроме последней цифры -1
     if ((Hemming[dig].frequency < average_count_level) || (Hemming[dig].min_Hemming > Hemming_level) || Hemming[dig].dig_defined == 10) {
-      //нет правильного результата увеличим пропущенное время если это не начало - предыдущее значение минут равно 0
-      if (Gas[pos_1].m3 == 0) Gas[position_m3].minutes++;
+
+      //нет правильного результата увеличим пропущенное время если это не начало и уже было распознано предыдущее значение м3 не равно 0
+      if (Gas[pos_1].m3 != 0) Gas[position_m3].minutes++;
+
       current_m3 = 0; //обнуляем, т.к. нет правильного результата
       flag = false; //сбросим флаг - не распознали
       break; //выйти из цикла
@@ -201,7 +194,8 @@ void m3_calculate() {
     current_m3 += Hemming[dig].dig_defined * k; //берем опознанное значенее и переводим в число
     k = k / 10; //уменьшаем коэффициент для следующего числа
   }
-  Serial.printf("flag=%d current_m3= %d minutes=%d position_m3=%d pos_1=%d\n", flag, current_m3, Gas[position_m3].minutes, position_m3, pos_1);
+  Serial.printf("flag=%d current_m3= %d minutes=%d position_m3=%d pos_1=%d minutes_1=%d\n",
+                flag, current_m3, Gas[position_m3].minutes, position_m3, pos_1, Gas[pos_1].minutes);
 
   if (flag) { //распознали сохраняем
     if (((current_m3 - Gas[pos_1].m3 < 0) || (current_m3 - Gas[pos_1].m3 > 6)) && (Gas[pos_1].m3 != 0)) { //ошибка распознавания вне пределов
@@ -209,11 +203,11 @@ void m3_calculate() {
       //если разница больше 0,06 - ошибка определения - текущее значение определили не верно - за 1 минуту не может быть больше 0,05
       //при начальном заполнении буфера первый раз будет давать ошибку
 
-      V[V_26_error_recognition]++; //увеличим счетчик ошибок неправльно распознанных
+      V[V_error_recognition]++; //увеличим счетчик ошибок неправльно распознанных
       Serial.printf("Значение %d м3 вне пределов на минуте %d\n", current_m3, Gas[pos_1].minutes);
     }
     else { //значения совпадают или нормально измененные
-      V[V_26_error_recognition] = 0.0; //сбросим счетчик ошибок неверно распознанных
+      V[V_error_recognition] = 0.0; //сбросим счетчик ошибок неверно распознанных
     }
 
     Serial.printf("Предыдущее %d текущее %d м3 позиция %d минут %d\tразница=%d\n", Gas[pos_1].m3, current_m3, position_m3, Gas[pos_1].minutes, current_m3 - Gas[pos_1].m3);
@@ -244,7 +238,7 @@ void m3_calculate() {
 
   if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
     Serial.printf("Gas[pos_2].m3= %d Gas[pos_1].m3= %d minutes=%d difference_m3=%d position-1=%d position-2=%d\n",
-           Gas[pos_2].m3, Gas[pos_1].m3, Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / Gas[pos_1].minutes, pos_1, pos_2);
+                  Gas[pos_2].m3, Gas[pos_1].m3, Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / Gas[pos_1].minutes, pos_1, pos_2);
   }
   else
     Serial.printf("current_m3= %d minutes=%d\n", Gas[pos_1].m3, Gas[pos_1].minutes);
@@ -266,19 +260,33 @@ void print_m3() {
     uint16_t pos = (position_m3 + i) & (size_m3 - 1); //позиция в буфере после места записи
     if (Gas[pos].m3 == 0) continue; //если обнаружили конец буфера продолжим
     //     Serial.printf("i=%d pos=%d position_m3+i=%d Gas[pos].minutes=%d Gas[pos].m3=%.2f\n",i, pos , position_m3+i,Gas[pos].minutes,Gas[pos].m3);
-    all_minutes += Gas[i].minutes;   //подсчет общего времени суммируем все
+    all_minutes += Gas[pos].minutes;   //подсчет общего времени суммируем все
     Serial.printf("%d\t%d\t%d\n", pos, Gas[pos].m3, Gas[pos].minutes);
   }
   V[V_SH_M3] = 0; //выведем один раз
 
-  if (!getLocalTime(&timeinfo)) { //получим время записи сохранения м3
+  struct tm timeinfo1; //структура времени записи кольцевого буфера
+
+  if (!getLocalTime(&timeinfo1)) { //получим время записи сохранения м3
     Serial.printf("Failed to obtain time\n");
   }
+  Serial.printf("\nСоздано  %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
+                timeinfo1.tm_hour, timeinfo1.tm_min, timeinfo1.tm_sec);
   time(&now);
   now -= all_minutes * 60; //отнимим прошедшие минуты о получим начало отсчета
-  localtime_r(&now, &timeinfo);
-  Serial.printf("\nНачало записи %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900,
-         timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  localtime_r(&now, &timeinfo1);
+  Serial.printf("Начало записи %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
+                timeinfo1.tm_hour, timeinfo1.tm_min, timeinfo1.tm_sec);
+
+  Serial.printf("\nСтатистика использования эталонов:\n");
+  for(uint8_t dig = 0; dig < number_letter; dig++){
+    Serial.printf("Позиция в шкале %d опеределено как цифра %d\n",dig,Hemming[dig].result);
+    for(uint8_t i = 0; i < number_of_samples; i++){
+      if(used_samples[i][dig] != 0)
+        Serial.printf("Цифра %d\tномер эталона %02d\tопознан %d раз\n",sample_equation[i],i,used_samples[i][dig]);
+    }
+  }
+  Serial.printf("\n");
 }
 //---------------------------------------------------- print_m3
 
@@ -461,7 +469,7 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
 
 
   uint8_t Y_mid = Y_first + ((Y_last - Y_first) >> 1);
-  if(Y_last - Y_first != height_letter) {
+  if (Y_last - Y_first != height_letter) {
     Y_last  = Y_mid + (height_letter >> 1);
     Y_first = Y_mid - (height_letter >> 1);
   }
@@ -493,12 +501,16 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
   uint8_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //позиция в буфере после места записи -2
 
   if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
-    sprintf(buf, "%4d mins %4.2f m3/h\0", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
+    sprintf(buf, "%4d mins %4.2f m3/m\0", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
     tft.drawText(0, info_time, buf, COLOR_WHITE);
+
+    V[V_m3_m] = (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0);
+    if (V[V_m3_m] > 1) V[V_m3_m] = 0; //за 1 минуту не может быть больше 1 м3
   }
   else {
     sprintf(buf, "%4d mins %4.2f m3\0", Gas[pos_1].minutes, Gas[pos_1].m3 / 100.0);
     tft.drawText(0, info_time, buf, COLOR_WHITE);
+    V[V_m3_m] = 0;
   }
 
   sprintf(buf, "%02d:%02d:%02d\0", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
@@ -522,27 +534,43 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
 
   uint16_t next_x = 0;
 
-  sprintf(buf, "Y_m=%2d", Y_mid);
+  sprintf(buf, "Y_m=%2d ", Y_mid);
   if ((Y_last - Y_first) != sample_height)
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
   else
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
-
   next_x += tft.getTextWidth(buf);
 
-  sprintf(buf, " X_dmax=%d", x_width_max);
-  if ((x_width_max > width_letter) || (x_width_max <= x_width_min)) //ширина не должна быть больше ширины буквы
-    tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
-  else
-    tft.drawText(next_x, info_first, buf, COLOR_GREEN);
-
+  sprintf(buf, " X_W =");
+  tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-  sprintf(buf, " X_dmin=%d", x_width_min);
 
+  sprintf(buf, "%2d", x_width_min);
   if ((x_width_min < 3) || (x_width_min > width_letter)) //ширина не должна быть меньше 3 пикселей
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
   else
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
+  next_x += tft.getTextWidth(buf);
+
+  sprintf(buf, "-%2d ", x_width_max);
+  if ((x_width_max > width_letter) || (x_width_max <= x_width_min)) //ширина не должна быть больше ширины буквы
+    tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
+  else
+    tft.drawText(next_x, info_first, buf, COLOR_GREEN);
+  next_x += tft.getTextWidth(buf);
+
+  sprintf(buf, " Y_o=%.0f  %.0f", V[V_offset_y_test], V[V_offset_y_current]);
+  tft.drawText(next_x, info_first, buf, COLOR_GREEN);
+  next_x += tft.getTextWidth(buf);
+
+  sprintf(buf, " %.0f", V[V_Sum_min_Hemming_current]);
+  if (V[V_Sum_min_Hemming] < 160) //Суммарное значение Хемминга должно быть меньше 150
+    tft.drawText(next_x, info_first, buf, COLOR_GREEN);
+  else if (V[V_Sum_min_Hemming] > 250)
+    tft.drawText(next_x, info_first, buf, COLOR_RED);
+  else
+    tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
+
 
   if (show) {
     Serial.printf(" Y_first = %d Y_last = %d\n", Y_first, Y_last);
@@ -670,7 +698,7 @@ uint8_t compare(uint8_t y, uint8_t samp_dig, uint8_t dig, int X_shift, int Y_shi
   //show выводить на экран
 
   uint32_t samp = sample[samp_dig][y];//центры эталона и сравниваемая цифра совпадают
-  //<< 5; нужно подготовить центры середина эталонна полученная из знакогенератора 8, середина цифры от камеры 13
+  //<< 5; нужно подготовить центры середина эталона полученная из знакогенератора 8, середина цифры от камеры 13
 
   uint32_t samp1;
 
@@ -711,7 +739,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show) {
   if (V[V_SH_HEX] == 1) {
     Serial.printf("{//%d\n", dig);
     for (uint8_t y = 0; y < Y_last - Y_first; y++) { //перебор по Y
-      Serial.printf("0x%010lx,\t//", l_32[dig][y]);
+      Serial.printf("0x%08lx,\t//", l_32[dig][y]);
       printBinary(l_32[dig][y], "\n");
     }
     Serial.printf("},\n");
@@ -814,7 +842,7 @@ void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, 
           if (V[V_SH_0_1] == 2) Serial.printf("0");
         }
       }
-      if (show) Serial.printf("|0x%010lx\n", l_32[dig][y - Y_first]);
+      if (show) Serial.printf("|0x%08lx\n", l_32[dig][y - Y_first]);
       if (V[V_SH_0_1] != 0) Serial.printf("\n");
     }
     if (show) Serial.printf("Letter box middel = %d d_x = %d d_y =%d mid_line_y=%d\n", max_letter_x[dig], width_letter, Y_last - Y_first, Y_first + (Y_last - Y_first) / 2);
@@ -907,15 +935,15 @@ esp_err_t sum_frames(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_down) 
       return ESP_FAIL;
     }
 
-    uint32_t i_max = fb->height * fb->width; //мксимальное значенее массива для данного экрана
+    uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
 
     for (uint16_t y = 0; y < F_HEIGHT; y++) { //работаем только с верхней частью кадра
       for (uint16_t x = 0; x < fb->width; x++) {
         if (s->pixformat == PIXFORMAT_GRAYSCALE) {
-          uint32_t i = ((y + V[V_offset_y]) * fb->width + x + V[V_offset_x]); //смещенее по оси Y и Х
+          uint32_t i = ((y + V[V_offset_y] + offset_y_current) * fb->width + x + V[V_offset_x]); //смещенее по оси Y и Х
           uint32_t j = (y * fb->width + x); //GRAYSCALE
           if ((y < Y_up) || (y > Y_down)) {
-            fr_buf[j] = 0; //обнулим значения ниже и выше Y - эммитация шторки
+            fr_buf[j] = 0; //обнулим значения ниже и выше Y - иммитация шторки
             //            Serial.printf("\n");
           }
           else {
@@ -1016,7 +1044,7 @@ void setup() {
 
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_GRAYSCALE; //PIXFORMAT_GRAYSCALE; //PIXFORMAT_RGB565;
-  config.fb_count = 2;
+  config.fb_count = 1; //2
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -1040,24 +1068,7 @@ void setup() {
   //       s->set_saturation(s, Value);
   //       s->set_contrast(s, Value);
 
-  // Wi-Fi connection
-  uint32_t timeout = millis();
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.printf(".");
-    if (millis() - timeout > 5000) break;
-  }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\nWiFi connected.\nCamera Stream Ready! Go to: http://");
-    Serial.printf("%s\n", WiFi.localIP().toString().c_str());
-  }
-  else { //create AP
-    WiFi.softAP("ESP32", "87654321");
-    Serial.printf("\nWiFi %s not found create AP Name - 'ESP32' Password - '87654321'\n", ssid);
-    Serial.printf("Camera Stream Ready! Go to: http://");
-    Serial.printf("%s\n", WiFi.softAPIP().toString());
-  }
+  WiFi_Connect();
 
   tft.begin();
   tft.setOrientation(3);
@@ -1083,15 +1094,6 @@ void setup() {
   //virtuino.key="1234";                       //This is the Virtuino password. Only requests the start with this key are accepted from the library
   // avoid special characters like ! $ = @ # % & * on your password. Use only numbers or text characters
   server.begin();
-  /*
-    for (uint8_t dig = 0; dig < number_letter; dig++) {
-      for (uint8_t y = 0; y < height_letter; y++) { //перебор по Y
-         printBinary(original[dig][y], "\n");
-      }
-    }
-  */
-
-
 
   for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
     Gas[i].m3 = 0;
@@ -1104,6 +1106,9 @@ void setup() {
   //init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
+  // Set timezone to Ukraine EET
+  setenv("TZ", "EET-2EEST,M3.5.0/3,M10.5.0/4", 1);
+
   if (!getLocalTime(&timeinfo)) { //получим время начала записи сохранения м3
     Serial.printf("Failed to obtain time\n");
     return;
@@ -1111,14 +1116,45 @@ void setup() {
 
   EEPROM.begin(16);//Установить размер внутренней памяти для хранения первоначальных значений
 
-  init_V();
-
-
-
-
+  init_V(); //инициализация начальных данных
+  
+  for(uint8_t dig = 0; dig < number_letter; dig++) //обнулить частоту использования эталонов
+    for(uint8_t i = 0; i < number_of_samples; i++) 
+      used_samples[i][dig] = 0;
 }
 //---------------------------------------------------- setup
 
+//---------------------------------------------------- WiFi_Connect
+void WiFi_Connect()
+{
+  // Wi-Fi connection
+  uint32_t timeout = millis();
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.printf(".");
+    if (millis() - timeout > 5000) break;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\nWiFi connected.\nCamera Stream Ready! Go to: http://");
+    Serial.printf("%s\n", WiFi.localIP().toString().c_str());
+  }
+  else { //create AP
+    WiFi.softAP("ESP32", "87654321");
+    Serial.printf("\nWiFi %s not found create AP Name - 'ESP32' Password - '87654321'\n", ssid);
+    Serial.printf("Camera Stream Ready! Go to: http://");
+    Serial.printf("%s\n", WiFi.softAPIP().toString());
+  }
+
+  if (WiFi.getAutoConnect() != true)    //configuration will be saved into SDK flash area
+  {
+    Serial.printf("Set setAutoConnect and setAutoReconnect\n");
+    WiFi.setAutoConnect(true);   //on power-on automatically connects to last used hwAP
+    WiFi.setAutoReconnect(true);    //automatically reconnects to hwAP in case it's disconnected
+  }
+}
+//---------------------------------------------------- WiFi_Connect
 
 //---------------------------------------------------- find_max_number
 uint8_t  find_max_number(uint8_t d) {
@@ -1189,12 +1225,12 @@ void show_result(bool show) {
     }
 
     if (show)
-      Serial.printf("found number=%2d frequency=%2d Hemming_min=%4d Hemming_defined =%d position=%2d Hemming_next=%4d next_dig=%2d delta=%3d x_width=%d\n",
-             Hemming[dig].result, Hemming[dig].frequency, Hemming[dig].min_Hemming, Hemming[dig].dig_defined, Hemming[dig].etalon_number,
-             Hemming[dig].next_min_Hemming, Hemming[dig].next_result, Hemming[dig].next_min_Hemming - Hemming[dig].min_Hemming, Hemming[dig].x_width);
+      Serial.printf("found=%2d freq=%2d Hem_min=%4d Hem_defined =%d position=%2d Hem_next=%4d next_dig=%2d delta=%3d x_w=%d\n",
+                    Hemming[dig].result, Hemming[dig].frequency, Hemming[dig].min_Hemming, Hemming[dig].dig_defined, Hemming[dig].etalon_number,
+                    Hemming[dig].next_min_Hemming, Hemming[dig].next_result, Hemming[dig].next_min_Hemming - Hemming[dig].min_Hemming, Hemming[dig].x_width);
 
+    used_samples[Hemming[dig].etalon_number][dig]++; //частота использования эталона
   }
-  if (show) Serial.printf("\n");
 
   //сохраненее данных для вывода на экран Virtuino
   V[V_D0] =   Hemming[0].dig_defined;
@@ -1241,76 +1277,123 @@ void show_result(bool show) {
 }
 //---------------------------------------------------- show_result
 
-uint32_t free_heap;
+//uint32_t free_heap;
 bool V_GBW_old = false;
 
 //---------------------------------------------------- loop
 void loop() {
 
-  for (uint8_t dig = 0; dig < number_letter; dig++) { //обнулить массив для поиска частоты повторения цифр
-    for (uint8_t i = 0; i < number_of_samples; i++) { //перебор по всем значения образцов
-      frequency[i][dig] = 0;
+#define min_max_offset_y_test 3 //значенее смещения +/-1 или 0
+  uint16_t Sum_min_Hemming[min_max_offset_y_test]; //количество вариантов поиска смещения по оси Y для автоматической подстройки
+
+  static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
+
+  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
+    offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //к уже определенному ранее значению смещения попробовать новое смещение +/-1 или 0
+
+    for (uint8_t dig = 0; dig < number_letter; dig++) { //обнулить массив для поиска частоты повторения цифр
+      for (uint8_t i = 0; i < number_of_samples; i++) { //перебор по всем значения образцов
+        frequency[i][dig] = 0;
+      }
     }
-  }
 
-  for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
+    for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
+      //обработка запросов web сервера Virtuino
+      virtuinoRun();
 
-    //обработка запросов web сервера
-    virtuinoRun();        // Necessary function to communicate with Virtuino. Client handler
+      if (V[V_RESTART]) ESP.restart(); //если нажата клавиша перезагрузки в приложении - перегрузить. Пароль 1234
+
+      if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
+
+      if (V[V_GBW] == 2) { //Вывод полного экрана без анализа
+        camera_capture(frame_buf, false, 0, F_HEIGHT); //получить кадры с камеры и усреднить их
+        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
+        V_GBW_old = true;
+      }
+      else {
+        if (V_GBW_old) tft.clear(); //очистка после вывода полного экрана без анализа
+        V_GBW_old = false;
+
+        if (V[V_GBW] == 1)
+          camera_capture(frame_buf, false, V[V_level_Y_up] - 10, V[V_level_Y_down] + 10); //получить кадры с камеры и усреднить их
+        else
+          camera_capture(frame_buf, false, V[V_level_Y_up], V[V_level_Y_down]); //получить кадры с камеры и усреднить их
+        //найти средний уровень пикселей окна табло
+        pixel_level = find_middle_level_image(frame_buf, false);
+
+        //отображение на дисплеи
+        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
+
+        //  free_heap  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+        //поиск положения окна цифр - при найденом уровне по оси y
+        find_digits_y(frame_buf, pixel_level, V[V_level_find_digital_Y], false); //уровень повысим на 15 единиц, чтобы убрать засветку
+        //  Serial.printf("heap = %d\n",free_heap-heap_caps_get_free_size(MALLOC_CAP_8BIT));
+
+        //поиск максимума - предположительно середины цифр
+        find_max_digital_X(frame_buf, pixel_level, V[V_level_find_digital_X], false); //уровень повысим на 7 единиц, чтобы убрать засветку
+
+        //найти средний уровень для каждой цифры
+        find_middle_britnes_digital(frame_buf, false);
+
+        //преобразование в 32 битное числа
+        convert_to_32(frame_buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
+
+        //сравнить с эталоном - рассчет расстояния Хемминга
+        for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
+          result[count][dig] = image_recognition(dig, V[V_show_digital]);
+          frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
+        }
+      }
+    } //повторим результат и найдем опознаные числа
 
     if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-    if (V[V_GBW] == 2) { //Вывод полного экрана без анализа
-      camera_capture(frame_buf, false, 0, F_HEIGHT); //получить кадры с камеры и усреднить их
-      dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
-      V_GBW_old = true;
+    if (V[V_GBW] != 2) {
+      show_result(true);
+
+      //суммарное значение расстояния Хемминга для всех цифр при разном смещении
+
+      Sum_min_Hemming[offset_y_test] = 0; //обнулим для последующего накопления
+      for (uint8_t dig = 0; dig < number_letter - 1; dig++) //без последней цифры
+        Sum_min_Hemming[offset_y_test] += Hemming[dig].min_Hemming;
+      V[V_Sum_min_Hemming_current] =  Sum_min_Hemming[offset_y_test]; //передадим текущее значение в приложение
+
+      V[V_offset_y_current] = (offset_y_test - 1);
+
+      Serial.printf("Суммарное расстояние Хемминга=%d при cмещении=%d итоговое смещение=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
     }
-    else {
-      if (V_GBW_old) tft.clear(); //очистка после вывода полного экрана без анализа
-      V_GBW_old = false;
+    change_variables(false); //если были изменения коэффициентов записать
+  } //попробовать смещение по оси Y
 
-      if(V[V_GBW] == 1)
-        camera_capture(frame_buf, false, V[V_level_Y_up]-10, V[V_level_Y_down]+10); //получить кадры с камеры и усреднить их
-      else
-        camera_capture(frame_buf, false, V[V_level_Y_up], V[V_level_Y_down]); //получить кадры с камеры и усреднить их
-      //найти средний уровень пикселей окна табло
-      pixel_level = find_middle_level_image(frame_buf, false);
-
-      //отображение на дисплеи
-      dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
-
-      //  free_heap  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-      //поиск положения окна цифр - при найденом уровне по оси y
-      find_digits_y(frame_buf, pixel_level, V[V_level_find_digital_Y], false); //уровень повысим на 15 единиц, чтобы убрать засветку
-      //  Serial.printf("heap = %d\n",free_heap-heap_caps_get_free_size(MALLOC_CAP_8BIT));
-
-      //поиск максимума - предположительно середины цифр
-      find_max_digital_X(frame_buf, pixel_level, V[V_level_find_digital_X], false); //уровень повысим на 7 единиц, чтобы убрать засветку
-
-      //найти средний уровень для каждой цифры
-      find_middle_britnes_digital(frame_buf, false);
-
-      //преобразование в 32 битное числа
-      convert_to_32(frame_buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
-
-      //сравнить с эталонном - рассчет расстояния Хемминга
-      for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
-        result[count][dig] = image_recognition(dig, V[V_show_digital]);
-        frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
-      }
-
-      //     if ((int)(millis() - 20000) > 0) //ждать стабилизации камеры 20 секунд
-      //       show_result(false); //вывести результат, чтобы результат всегда был на экране
-
+  //поиск минимального суммарного значения расстояния Хемминга для всех цифр при разном смещении
+  uint16_t Sum_min = Sum_min_Hemming[0]; //минимальное значение расстояния Хемминга
+  uint8_t Sum_min_offset_y_test = 0; //смещение по оси Y
+  
+  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
+     if (Sum_min > Sum_min_Hemming[offset_y_test]) {
+      Sum_min = Sum_min_Hemming[offset_y_test];
+      Sum_min_offset_y_test = offset_y_test;
     }
   }
-
-  if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
   if (V[V_GBW] != 2) {
-    //     if ((int)(millis() - 20000) > 0) //ждать стабилизации камеры 20 секунд
-    show_result(true);
+    V[V_Sum_min_Hemming] =  Sum_min; //передадим текущее значение в приложение
+    if (V[V_Sum_min_Hemming] > 250) { //суммарное значенее расстояния Хемминга не должно быть более 250
+      V[V_Sum_min_Hemming_error]++;
+      Serial.printf("Очевидно сбой суммарное расстояние Хемминга=%.0f всего ошибок=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
+    }
+    else {
+      V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //запомним лучшее значение
+    }
+
+    Serial.printf("Результат суммарное расстояние Хемминга=%d при смещении=%d итоговое смещение=%.0f всего сбоев %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
   }
-  change_variables(false); //если были изменения коэффициентов записать
+
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi_Lost++;
+    Serial.printf("Сеть потеряна %d\n", WiFi_Lost);
+  }
+  else WiFi_Lost = 0;
+  if (WiFi_Lost == 6) WiFi_Connect(); //если нет связи около 4 минут пересоединиться
 }
 //---------------------------------------------------- loop
