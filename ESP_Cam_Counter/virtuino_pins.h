@@ -3,15 +3,11 @@
 #define VirtuinoH
 
 
-//---VirtuinoCM  Library settings --------------
-#include "VirtuinoCM.h"
-VirtuinoCM virtuino;
 #define V_memory_count 64          // the size of V memory. You can change it to a number <=255)
 float V[V_memory_count];           // This array is synchronized with Virtuino V memory. You can change the type to int, long etc.
 //---
 boolean debug = false;              // set this variable to false on the finale code to decrease the request time.
 
-WiFiServer server(80);                   // Default Virtuino Server port
 
 
 //Опеределенее ячеек памяти на сервере virtuino
@@ -22,7 +18,7 @@ WiFiServer server(80);                   // Default Virtuino Server port
 #define V_offset_y                2 //V2 - смещенее по оси Y при суммировании кадров и отображении на дисплее 75 85 87
 #define V_offset_x                3 //V3 - смещенее по оси X при суммировании кадров и отображении на дисплее
 #define V_level_dispalay_ttf_B_W  4 //V4 - Доп. уровень бинаризации для дисплея 15
-#define V_level_find_digital_Y     5 //V5 - Доп. уровень бинаризации для поиска цифр по y
+#define V_level_find_digital_Y    5 //V5 - Доп. уровень бинаризации для поиска цифр по y
 #define V_level_find_digital_X    6 //V6 - Доп. уровень бинаризации для поиска цифр по X
 
 #define V_level_convert_to_32     7 //V7 - Доп. уровень бинаризации при конвертации в 32 бита
@@ -56,6 +52,11 @@ WiFiServer server(80);                   // Default Virtuino Server port
 #define V_offset_y_current       31 //V31 - текущее дополнительное смещение по оси Y
 #define V_Sum_min_Hemming_current 32 //V32 - суммарное значенее всех расстояний Хемминга
 #define V_Sum_min_Hemming_error  33 //V33 - ошибки большое суумарное значение расстояния Хемминга
+
+#define V_CropX1  				 41 //V41 - Initial frame crop coordinates
+#define V_CropX2  				 42 //V42 - Initial frame crop coordinates
+#define V_CropY1  				 43 //V43 - Initial frame crop coordinates
+#define V_CropY2  				 44 //V44 - Initial frame crop coordinates
 
 
 String T_0 = "";                    // результаты распознавания
@@ -168,7 +169,7 @@ void change_variables(bool read_from_memory)
   //запись данных в память
   if (write_EEPROM_flag)
   { //записать данные в память
-    EEPROM.commit(); //подтвердить запись в память
+    // EEPROM.commit(); //подтвердить запись в память // for debug period
     printf("Обновлены данные в памяти\n");
   }
 }
@@ -261,55 +262,7 @@ String onRequested(char variableType, uint8_t variableIndex) {
 
 
 
-//================================================================= virtuinoRun
-void virtuinoRun() {
-  WiFiClient client = server.available();
-  if (!client) return;
-  if (debug) Serial.println("Connected");
-  unsigned long timeout = millis() + 3000;
-  while (!client.available() && millis() < timeout) delay(1);
-
-  if (millis() > timeout) {
-    Serial.println("timeout");
-    client.flush();
-    client.stop();
-    return;
-  }
-
-  virtuino.readBuffer = "";  // clear Virtuino input buffer. The inputBuffer stores the incoming characters
-  while (client.available() > 0) {
-    char c = client.read();         // read the incoming data
-    virtuino.readBuffer += c;       // add the incoming character to Virtuino input buffer
-    if (debug) Serial.write(c);
-  }
-  client.flush();
-  if (debug) Serial.println("\nReceived data: " + virtuino.readBuffer);
-  String* response = virtuino.getResponse();   // get the text that has to be sent to Virtuino as reply. The library will check the inptuBuffer and it will create the response text
-  if (debug) Serial.println("Response : " + *response);
-  client.print(*response);
-  client.flush();
-  delay(10);
-  client.stop();
-  //     lastCommTime =  millis();
-  V[V_lastCommTime] = round(millis() / 1000.0); //преобразовать в секунды
-  if (debug) Serial.println("Disconnected");
-}
-//================================================================= virtuinoRun
 
 
-
-
-
-
-//================================================================= vDelay
-void vDelay(int delayInMillis) {
-
-  unsigned long t = millis();
-
-  while ((unsigned long)(millis() - t) < delayInMillis)
-    virtuinoRun();
-}
-
-//================================================================= vDelay
 
 #endif

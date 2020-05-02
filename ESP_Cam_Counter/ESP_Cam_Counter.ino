@@ -3,31 +3,22 @@
   Complete project details at https://RandomNerdTutorials.com/esp32-cam-video-streaming-web-server-camera-home-assistant/
 *********/
 
-#include "esp_camera.h"
+// Look at that proj https://bitluni.net/esp32-i2s-camera-ov7670 for Display references
+// ESP32 I2S Camera (OV7670)
+
+#include <esp_camera.h>
 #include <WiFi.h>
-#include "esp_timer.h"
+#include <esp_timer.h>
 #include "img_converters.h"
 #include "Arduino.h"
 #include "fb_gfx.h"
-#include "soc/soc.h" //disable brownout problems
-#include "soc/rtc_cntl_reg.h"  //disable brownout problems
-#include "esp_http_server.h"
 
-#include "TFT_22_ILI9225.h"
-#include <SPI.h>
-// Include font definition files
-// NOTE: These files may not have all characters defined! Check the GFXfont def
-// params 3 + 4, e.g. 0x20 = 32 = space to 0x7E = 126 = ~
 
-#include "fonts/FreeSansBold24pt7b.h"
+//#include "driver/rtc_io.h"
+#include <ESPAsyncWebServer.h>
+#include <StringArray.h>
 
-#define TFT_CS         15
-#define TFT_RST        13 // -1
-#define TFT_RS         2 //RS 
-#define TFT_SDI 12  // Data out SDA MOSI SDI 
-#define TFT_CLK 14  // Clock out CLK
 
-TFT_22_ILI9225 tft = TFT_22_ILI9225(TFT_RST, TFT_RS, TFT_CS, TFT_SDI, TFT_CLK, 0, 200);
 
 #include "virtuino_pins.h"
 
@@ -59,10 +50,91 @@ struct tm timeinfo; //структура времени записи кольц�
 #define average_count 10 //количество усреднений результатов распознавания
 #define average_count_level average_count-3 //число усреднений, которое принимается за положительное при распознавании
 
-#define F_HEIGHT 176 //высота обработки изображения совпадает с высотой дисплея 2.0
+#define F_HEIGHT 240 //высота обработки изображения совпадает с высотой дисплея 2.0
 #define F_WIDTH  320 //ширина обработки изображения совпадает с шириной изображения камеры
 
 #include "sample.h" //образцы эталонов
+
+
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { text-align:center; }
+    .vert { margin-bottom: 10%; }
+    .hori{ margin-bottom: 0%; }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h2>ESP32-CAM Last Photo</h2>
+    <p>
+      <button onclick="capturePhoto()">CAPTURE PHOTO</button>
+      <button onclick="location.reload();">REFRESH PAGE</button>
+    </p>
+  </div>
+  <div><img src="full-frame" id="photo"></div>
+</body>
+<script>
+  function capturePhoto() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', "/capture", true);
+    xhr.send();
+  }
+  function isOdd(n) { return Math.abs(n % 2) == 1; }
+</script>
+</html>)rawliteral";
+
+const char config_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html><head>
+  <title>ESP Input Form</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    function submitMessage() {
+      alert("Saved value to ESP SPIFFS");
+      setTimeout(function(){ document.location.reload(false); }, 500);   
+    }
+  </script></head><body>
+
+  <form action="/get" target="hidden-form">
+    inputInt (current value %inputIntX1%): <input type="number " name="inputIntX1">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+  <form action="/get" target="hidden-form">
+    inputInt (current value %inputIntY1%): <input type="number " name="inputIntY1">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+  <form action="/get" target="hidden-form">
+    inputInt (current value %inputIntX2%): <input type="number " name="inputIntX2">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+  <form action="/get" target="hidden-form">
+    inputInt (current value %inputIntY2%): <input type="number " name="inputIntY2">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <iframe style="display:none" name="hidden-form"></iframe>
+</body></html>)rawliteral";
+
+ /*
+  <form action="/get" target="hidden-form">
+    inputString (current value %inputString%): <input type="text" name="inputString">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+  <form action="/get" target="hidden-form">
+    inputFloat (current value %inputFloat%): <input type="number " name="inputFloat">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form>
+ */
+
+
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
+boolean takeNewPhoto = false;
+
+size_t 		full_frame_jpg_buf_len;	// Pointers to JPEG compessed buffer
+uint8_t * 	full_frame_jpg_buf = NULL;
 
 uint16_t Y_first, Y_last; //положение окна расположения цифр в буфере камеры
 
@@ -156,12 +228,6 @@ const char* password 	= MY_PASS;
 const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
 const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
-
-httpd_handle_t stream_httpd = NULL;
-
-#include <Ticker.h> //esp32 library that calls functions periodically
-
-Ticker Gas_minute_Ticker; //используется для расчета объма газа каждую минуту
 
 #define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ...
 
@@ -448,7 +514,7 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
   */
   //поиск среднего уровня
   for (uint8_t y = Y_FIRST_LOOK; y < Y_LAST_LOOK; y++) { //только в пределах экрана по высоте 10-100 строки
-    for (uint16_t x = 0; x < tft.maxX(); x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
+    for (uint16_t x = 0; x < F_WIDTH; x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
       uint32_t i = (y * F_WIDTH + x);
       if (fr_buf[i] > mid_level + add_mid_level) av++;
     }
@@ -457,7 +523,7 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
 
   for (uint8_t y = Y_FIRST_LOOK; y < Y_LAST_LOOK; y++) { //только в пределах экрана по высоте 10-100 строки
     float av1 = 0;
-    for (uint16_t x = 0; x < tft.maxX(); x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
+    for (uint16_t x = 0; x < F_WIDTH; x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
       uint32_t i = (y * F_WIDTH + x);
       if (fr_buf[i] > mid_level + add_mid_level) av1++;
     }
@@ -477,53 +543,40 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
     Y_first = Y_mid - (height_letter >> 1);
   }
 
-  tft.drawLine(0, Y_first, tft.maxX() - 1, Y_first, COLOR_YELLOW);
-  tft.drawLine(0, Y_last, tft.maxX() - 1, Y_last, COLOR_YELLOW);
-  tft.drawLine(0, Y_mid, tft.maxX() - 1, Y_mid, COLOR_CYAN);
+  //tft.drawLine(0, Y_first, tft.maxX() - 1, Y_first, COLOR_YELLOW);
+  //tft.drawLine(0, Y_last, tft.maxX() - 1, Y_last, COLOR_YELLOW);
+  //tft.drawLine(0, Y_mid, tft.maxX() - 1, Y_mid, COLOR_CYAN);
 
 
-
-  /*
-    //вывод на дисплей индивидуальных значений яркости
-      tft.setFont(Terminal6x8 ); //10 pixel
-      tft.fillRectangle (0, info_britnes, tft.maxX(), 20, COLOR_BLACK); //очистить часть экрана
-
-      tft.setColor(COLOR_WHITE);
-      tft.setCursor(0, info_britnes);
-      for (uint8_t dig = 0; dig < number_letter; dig++) {//вывести значения яркости
-        tft.drawTextf("%d ", Hemming[dig].britnes_digital);
-      }
-
-  */
 
   //вывод на дисплей результатов сохраненных значений
-  tft.setFont(Terminal6x8); //10 pixel
-  tft.fillRectangle (0, info_time - 2, tft.maxX(), info_time + 10, COLOR_BLACK); //очистить часть экрана
+  //tft.setFont(Terminal6x8); //10 pixel
+  //tft.fillRectangle (0, info_time - 2, tft.maxX(), info_time + 10, COLOR_BLACK); //очистить часть экрана
 
   uint8_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //позиция в буфере после места записи -1
   uint8_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //позиция в буфере после места записи -2
 
   if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
     sprintf(buf, "%4d mins %4.2f m3/m\0", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
-    tft.drawText(0, info_time, buf, COLOR_WHITE);
+    //tft.drawText(0, info_time, buf, COLOR_WHITE);
 
     V[V_m3_m] = (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0);
     if (V[V_m3_m] > 1) V[V_m3_m] = 0; //за 1 минуту не может быть больше 1 м3
   }
   else {
     sprintf(buf, "%4d mins %4.2f m3\0", Gas[pos_1].minutes, Gas[pos_1].m3 / 100.0);
-    tft.drawText(0, info_time, buf, COLOR_WHITE);
+    //tft.drawText(0, info_time, buf, COLOR_WHITE);
     V[V_m3_m] = 0;
   }
 
   sprintf(buf, "%02d:%02d:%02d\0", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
   if (!getLocalTime(&timeinfo)) {
     Serial.printf("Failed to obtain time\n");
-    tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_RED); //9 * tft.getCharWidth(48)
+    //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_RED); //9 * tft.getCharWidth(48)
   }
   else {
     sprintf(buf, "%02d:%02d:%02d\0", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_YELLOW);
+    //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_YELLOW);
   }
 
   uint16_t x_width_min = F_WIDTH; //ширина экрана
@@ -535,8 +588,8 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
     if (x_width_max < Hemming[dig].x_width) x_width_max = Hemming[dig].x_width;
   }
 
+/*
   uint16_t next_x = 0;
-
   sprintf(buf, "Y_m=%2d ", Y_mid);
   if ((Y_last - Y_first) != sample_height)
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
@@ -573,7 +626,7 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
     tft.drawText(next_x, info_first, buf, COLOR_RED);
   else
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
-
+*/
 
   if (show) {
     Serial.printf(" Y_first = %d Y_last = %d\n", Y_first, Y_last);
@@ -611,10 +664,10 @@ void find_max_digital_X(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_le
 
   if (show) {
     //вывод гистограммы на дисплей с учетом смещения по оси Х
-    tft.fillRectangle (0, info_Hemming - 30, tft.maxX(), info_Hemming - 2, COLOR_BLACK); //очистить часть экрана
+    //tft.fillRectangle (0, info_Hemming - 30, tft.maxX(), info_Hemming - 2, COLOR_BLACK); //очистить часть экрана
     for (uint16_t x = V[V_offset_x_digital]; x < F_WIDTH; x++) { //перебор по строке  V[V_offset_x]
-      if (letter[x] != 0)
-        tft.drawLine(x - V[V_offset_x_digital], info_Hemming - 30, x - V[V_offset_x_digital], 100 + letter[x], COLOR_CYAN); //Y_last + 10 V[V_offset_x]
+      //if (letter[x] != 0)
+        //tft.drawLine(x - V[V_offset_x_digital], info_Hemming - 30, x - V[V_offset_x_digital], 100 + letter[x], COLOR_CYAN); //Y_last + 10 V[V_offset_x]
     }
   }
 
@@ -640,9 +693,9 @@ void find_max_digital_X(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_le
 
         dig++;
         //линия на +/- 5 пикселей от Y_last и Y_first
-        tft.drawLine(((x2 - x1) >> 1) + x1 - V[V_offset_x_digital], Y_first - 5, ((x2 - x1) >> 1) + x1 - V[V_offset_x_digital], Y_last + 5, COLOR_BLUE);
-        tft.drawLine(x1 - V[V_offset_x_digital], Y_first - 5, x1 - V[V_offset_x_digital], Y_last + 5, COLOR_OLIVE);
-        tft.drawLine(x2 - V[V_offset_x_digital], Y_first - 5, x2 - V[V_offset_x_digital], Y_last + 5, COLOR_OLIVE);
+        //tft.drawLine(((x2 - x1) >> 1) + x1 - V[V_offset_x_digital], Y_first - 5, ((x2 - x1) >> 1) + x1 - V[V_offset_x_digital], Y_last + 5, COLOR_BLUE);
+        //tft.drawLine(x1 - V[V_offset_x_digital], Y_first - 5, x1 - V[V_offset_x_digital], Y_last + 5, COLOR_OLIVE);
+        //tft.drawLine(x2 - V[V_offset_x_digital], Y_first - 5, x2 - V[V_offset_x_digital], Y_last + 5, COLOR_OLIVE);
 
         /*
                 //построение диаграммы по оси Y между x1 и x2
@@ -866,8 +919,8 @@ esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid
 
 
   //зарезервировтать паять для буфера дисплея
-  uint16_t W = tft.maxX();
-  uint16_t H = tft.maxY();
+  uint16_t W = F_WIDTH;
+  uint16_t H = F_HEIGHT;
 
   uint16_t *disp_buf = (uint16_t *)heap_caps_calloc(W * H * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (disp_buf == NULL) {
@@ -893,18 +946,20 @@ esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid
           if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
         }
         if (fr_buf[i] < Hemming[dig].britnes_digital + add_mid_level) //индивидуальный уровень яркости для каждой цифры
-          *(disp_buf + j)  = COLOR_BLACK;
+          *(disp_buf + j)  = (uint16_t)0;//COLOR_BLACK;
         else
-          *(disp_buf + j) = COLOR_WHITE;
+          *(disp_buf + j) = (uint16_t)0xFFFF;//COLOR_WHITE;
       }
       else *(disp_buf + j) = color;
     }
 
   }
+/*
   if (V[V_GBW] == 2) //если выводить полный экран
     tft.drawBitmap(0, 0, disp_buf, W, H); //отобразить на дисплеи
   else
     tft.drawBitmap(0, 0, disp_buf, W, V[V_level_Y_down] + 10); //отобразить на дисплеи часть изображения с запасом на 10 пикселей
+*/
 
   heap_caps_free(disp_buf); //освободить буфер
 
@@ -993,6 +1048,8 @@ esp_err_t camera_capture(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_do
     dispalay_ttf_B_W(fr_buf, 0, 0);
     Serial.printf("Send buffer time: %u ms\n", clock() - tstart);
   }
+
+  return ESP_OK;
 }
 //---------------------------------------------------- camera_capture
 
@@ -1000,7 +1057,7 @@ esp_err_t camera_capture(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_do
 //---------------------------------------------------- setup
 void setup() {
 
-  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); //disable brownout detector
+
 
   Serial.begin(115200);
   Serial.setDebugOutput(false);
@@ -1025,26 +1082,6 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  /*
-    config.pixel_format = PIXFORMAT_GRAYSCALE; //PIXFORMAT_JPEG;
-
-    //init with high specs to pre-allocate larger buffers
-    if (psramFound()) {
-      //    config.frame_size = FRAMESIZE_UXGA;
-      config.frame_size = FRAMESIZE_QVGA;
-      config.jpeg_quality = 10;
-      config.fb_count = 1;
-    } else {
-      config.frame_size = FRAMESIZE_SCOLOR;
-      config.jpeg_quality = 12;
-      config.fb_count = 1;
-    }
-
-    //  config.frame_size = FRAMESIZE_QVGA;
-    // Camera init
-  */
-  // for display
-
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_GRAYSCALE; //PIXFORMAT_GRAYSCALE; //PIXFORMAT_RGB565;
   config.fb_count = 1; //2
@@ -1056,7 +1093,6 @@ void setup() {
     ESP.restart();
   }
 
-  //drop down frame size for higher initial frame rate
   s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_QVGA);
 
@@ -1073,10 +1109,6 @@ void setup() {
 
   WiFi_Connect();
 
-  tft.begin();
-  tft.setOrientation(3);
-  tft.clear(); //черным
-
   uint32_t f8  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
   frame_buf = (uint16_t *)heap_caps_calloc(F_WIDTH * F_HEIGHT * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (frame_buf == NULL) {
@@ -1090,13 +1122,69 @@ void setup() {
   for (uint8_t dig = 0; dig < number_letter; dig++) {
     Hemming[dig].dig_defined = 10; //заносим первоначально максимальное число вне диапазона 0-9
   }
-  // Start web server
-  //  startCameraServer();
 
-  virtuino.begin(onReceived, onRequested, 512); //Start Virtuino. Set the buffer to 256. With this buffer Virtuino can control about 28 pins (1 command = 9bytes) The T(text) commands with 20 characters need 20+6 bytes
-  //virtuino.key="1234";                       //This is the Virtuino password. Only requests the start with this key are accepted from the library
-  // avoid special characters like ! $ = @ # % & * on your password. Use only numbers or text characters
-  server.begin();
+
+  // Route for root / web page
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send_P(200, "text/html", index_html);
+  });
+
+  server.on("/capture", HTTP_GET, [](AsyncWebServerRequest * request) {
+    takeNewPhoto = true;
+    request->send_P(200, "text/plain", "Taking Photo");
+  });
+
+  server.on("/full-frame", HTTP_GET, [](AsyncWebServerRequest * request) {
+
+      // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
+      // This is necessary when a TLS connection is open since it sucks too much memory
+	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
+	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+
+	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)full_frame_jpg_buf, full_frame_jpg_buf_len);
+      });
+	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+	  request->send(response);
+
+  });
+
+  server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request){
+	    request->send_P(200, "text/html", config_html, processor);
+  });
+
+  // Send a GET request to <ESP_IP>/get?inputString=<inputMessage>
+  server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    String inputMessage;
+    // GET inputInt value on <ESP_IP>/get?inputInt=<inputMessage>
+    if 		(request->hasParam("inputIntX1")) {
+		inputMessage = request->getParam("inputIntX1")->value();
+		V[V_CropX1] = inputMessage.toInt();
+    }
+    else if (request->hasParam("inputIntX2")) {
+        inputMessage = request->getParam("inputIntX2")->value();
+        V[V_CropX2] = inputMessage.toInt();
+    }
+    else if (request->hasParam("inputIntY1")) {
+        inputMessage = request->getParam("inputIntY1")->value();
+        V[V_CropY1] = inputMessage.toInt();
+    }
+    else if (request->hasParam("inputIntY2")) {
+        inputMessage = request->getParam("inputIntY2")->value();
+        V[V_CropY2] = inputMessage.toInt();
+    }
+    else {
+    	inputMessage = "No message sent";
+    }
+    Serial.println(inputMessage);
+    request->send(200, "text/text", inputMessage);
+  });
+
+  server.onNotFound(notFound);
+
+
+
+
 
   for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
     Gas[i].m3 = 0;
@@ -1104,7 +1192,7 @@ void setup() {
   }
   Gas[0].minutes = 1; //подсчет времени сначала для текущего элемента
 
-  Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
+  //Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
 
   //init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -1124,8 +1212,58 @@ void setup() {
   for(uint8_t dig = 0; dig < number_letter; dig++) //обнулить частоту использования эталонов
     for(uint8_t i = 0; i < number_of_samples; i++) 
       used_samples[i][dig] = 0;
+
+
+  // Start server
+  server.begin();
+
+  // Take first photo immediately
+  takeNewPhoto = true;
 }
 //---------------------------------------------------- setup
+
+
+void notFound(AsyncWebServerRequest *request) {
+  request->send(404, "text/plain", "Not found");
+}
+
+int genBufferChunk(char *buffer, int maxLen, size_t index, char *DataBuf, size_t DataSize)
+{
+      size_t max 	 = (ESP.getFreeHeap() / 3) & 0xFFE0;
+
+      // Get the chunk based on the index and maxLen
+      size_t len = DataSize - index;
+      if (len > maxLen) len = maxLen;
+      if (len > max) len = max;
+      if (len > 0){
+    	  if(0==index){
+    		  Serial.printf(PSTR("[WEB] Sending chunked buffer (max chunk size: %4d) "), max);
+    	  }
+		  memcpy_P(buffer, DataBuf + index, len);
+		  Serial.printf(PSTR("."));
+      }
+      if (len == 0) Serial.printf(PSTR("\r\n"));
+      // Return the actual length of the chunk (0 for end of file)
+      return len;
+}
+
+// Replaces placeholder with stored values
+String processor(const String& var){
+  //Serial.println(var);
+  if(var == "inputIntX1"){
+    return String(V[V_CropX1]);
+  }
+  else if(var == "inputIntX2"){
+    return String(V[V_CropX2]);
+  }
+  else if(var == "inputIntY1"){
+    return String(V[V_CropY1]);
+  }
+  else if(var == "inputIntY2"){
+    return String(V[V_CropY2]);
+  }
+  return String();
+}
 
 //---------------------------------------------------- WiFi_Connect
 void WiFi_Connect()
@@ -1185,14 +1323,14 @@ void show_result(bool show) {
 
   int16_t w, h;
 
-  tft.setGFXFont(&FreeSansBold24pt7b); // Set current font
-  tft.getGFXTextExtent("0", 0, info_result, &w, &h); // Get string extents
+  //tft.setGFXFont(&FreeSansBold24pt7b); // Set current font
+  //tft.getGFXTextExtent("0", 0, info_result, &w, &h); // Get string extents
   h += info_result;
   //  Serial.printf("info_result=%d w=%d h=%d\n",info_result,w,h);
 
   //  tft.setFont(Trebuchet_MS16x21); //22 pixel for size 3 Trebuchet_MS16x21
 
-  tft.fillRectangle (0, info_result - 2, tft.maxX(), h + 7, COLOR_BLACK); //очистить часть экрана GFXFont привязан верхней точкой
+  //tft.fillRectangle (0, info_result - 2, tft.maxX(), h + 7, COLOR_BLACK); //очистить часть экрана GFXFont привязан верхней точкой
 
   //найти максимальную частоту вхождения цифр после опознавания
   for (uint8_t dig = 0; dig < number_letter; dig++) { //number_letter
@@ -1203,19 +1341,19 @@ void show_result(bool show) {
       if (defined != Hemming[dig].dig_defined) { //корректно обнаружили первый раз
         //        Serial.printf("Change defined digital in position=%d from=%d to %d\n", dig, Hemming[dig].dig_defined, defined);
         Hemming[dig].dig_defined = defined;
-        tft.drawGFXText(next_x, h, buf, COLOR_YELLOW); // Print string
+        //tft.drawGFXText(next_x, h, buf, COLOR_YELLOW); // Print string
         //        tft.drawText(next_x, info_result,buf,COLOR_YELLOW); //цифра опознана с большой вероятностью
       }
-      else tft.drawGFXText(next_x, h, buf, COLOR_GREEN); //цифра распознана корректно уже неоднократно
+      //else tft.drawGFXText(next_x, h, buf, COLOR_GREEN); //цифра распознана корректно уже неоднократно
     }
-    else tft.drawGFXText(next_x, h, buf, COLOR_RED);
+    //else tft.drawGFXText(next_x, h, buf, COLOR_RED);
 
     T_0 += defined;
     next_x += w; //шаг между цифрами
 
     if (dig == 4) {
       T_0 += ".";
-      tft.drawGFXText(next_x, h, ".", COLOR_GREEN);
+      //tft.drawGFXText(next_x, h, ".", COLOR_GREEN);
       next_x += (w >> 1); //шаг между цифрами
     }
 
@@ -1249,27 +1387,27 @@ void show_result(bool show) {
   T_1 = "";
   T_2 = "";
 
-  tft.setFont(Terminal6x8); //10 pixel
-  tft.fillRectangle (0, info_Hemming - 2, tft.maxX(), info_Hemming + 24, COLOR_BLACK); //очистить часть экрана для расстояния Хеминга и частоты
+  //tft.setFont(Terminal6x8); //10 pixel
+  //tft.fillRectangle (0, info_Hemming - 2, tft.maxX(), info_Hemming + 24, COLOR_BLACK); //очистить часть экрана для расстояния Хеминга и частоты
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
     sprintf(buf, "|%3d \0", Hemming[dig].min_Hemming);
-    next_x = max(tft.getTextWidth(T_1), tft.getTextWidth(T_2));
-    if (next_x != 0) next_x -= tft.getTextWidth(" ");
+    //next_x = max(tft.getTextWidth(T_1), tft.getTextWidth(T_2));
+    //if (next_x != 0) next_x -= tft.getTextWidth(" ");
 
-    if (Hemming[dig].min_Hemming < Hemming_level)
-      tft.drawText(next_x, info_Hemming, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
-    else
-      tft.drawText(next_x, info_Hemming, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
+    //if (Hemming[dig].min_Hemming < Hemming_level)
+      //tft.drawText(next_x, info_Hemming, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
+    //else
+      //tft.drawText(next_x, info_Hemming, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
 
     //    Serial.printf("%3d %3d '%s'\n",next_x,tft.getTextWidth(T_1),T_1.c_str());
     T_1 += buf;
 
     sprintf(buf, "|%3d \0", Hemming[dig].frequency);
-    if (Hemming[dig].frequency > average_count_level)
-      tft.drawText(next_x, info_frequency, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
-    else
-      tft.drawText(next_x, info_frequency, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
+    //if (Hemming[dig].frequency > average_count_level)
+      //tft.drawText(next_x, info_frequency, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
+    //else
+      //tft.drawText(next_x, info_frequency, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
 
     //    Serial.printf("%3d %3d %3d '%s'\n",next_x,tft.getTextWidth(T_2),tft.getTextWidth(T_2)-5,T_2.c_str());
     T_2 += buf;
@@ -1301,20 +1439,18 @@ void loop() {
     }
 
     for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
-      //обработка запросов web сервера Virtuino
-      virtuinoRun();
 
       if (V[V_RESTART]) ESP.restart(); //если нажата клавиша перезагрузки в приложении - перегрузить. Пароль 1234
 
       if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-      if (V[V_GBW] == 2) { //Вывод полного экрана без анализа
-        camera_capture(frame_buf, false, 0, F_HEIGHT); //получить кадры с камеры и усреднить их
-        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
+      if (V[V_GBW] == 2) { 														//Вывод полного экрана без анализа
+        camera_capture(frame_buf, false, 0, F_HEIGHT); 							//получить кадры с камеры и усреднить их
+        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); 	//повысим на 5-20 единиц, чтобы убрать засветку
         V_GBW_old = true;
       }
       else {
-        if (V_GBW_old) tft.clear(); //очистка после вывода полного экрана без анализа
+        //if (V_GBW_old) tft.clear(); //очистка после вывода полного экрана без анализа
         V_GBW_old = false;
 
         if (V[V_GBW] == 1)
