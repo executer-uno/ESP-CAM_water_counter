@@ -6,6 +6,9 @@
 // Look at that proj https://bitluni.net/esp32-i2s-camera-ov7670 for Display references
 // ESP32 I2S Camera (OV7670)
 
+// SPIFFS and ESPAsyncWebServer configuration page taken from manuals:
+// https://randomnerdtutorials.com/esp32-esp8266-input-data-html-form/
+
 #include <esp_camera.h>
 #include <WiFi.h>
 #include <esp_timer.h>
@@ -20,12 +23,10 @@
 #include <ESPAsyncWebServer.h>
 #include <StringArray.h>
 
-
+#include <SPIFFS.h>
 
 #include "virtuino_pins.h"
-
 #include "time.h"
-
 #include "Credentials.h"
 
 const char* ntpServer = "pool.ntp.org";
@@ -101,39 +102,67 @@ const char config_html[] PROGMEM = R"rawliteral(
 
   <form action="/get" target="hidden-form">
     Crop area coodinates X1:
-	<input type="number" name="inputIntX1" value=%inputIntX1%>
+	<input type="number" name="inputIntX1" value=%inputIntX1% min="0" max="320">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
+
   <form action="/get" target="hidden-form">
     Crop area coodinates Y1:
-	<input type="number" name="inputIntY1" value=%inputIntY1%>
+	<input type="number" name="inputIntY1" value=%inputIntY1% min="0" max="240">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
+
   <form action="/get" target="hidden-form">
     Crop area coodinates X2:
-	<input type="number" name="inputIntX2" value=%inputIntX2%>
+	<input type="number" name="inputIntX2" value=%inputIntX2% min="0" max="320">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
+
   <form action="/get" target="hidden-form">
     Crop area coodinates Y2:
-	<input type="number" name="inputIntY2" value=%inputIntY2%>
+	<input type="number" name="inputIntY2" value=%inputIntY2% min="0" max="240">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <form action="/get" target="hidden-form">
+    Use flashlight (0=OFF; 1=ON):
+	<input type="checkbox" name="FlashLED" %FlashLED%>
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+
+  <form action="/get" target="hidden-form">
+    смещенее по оси Y при суммировании кадров и отображении на дисплее 20 250:
+  <input type="number" name="V_offset_y" value=%V_offset_y% min="20" max="250">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <form action="/get" target="hidden-form">
+    смещенее по оси X при суммировании кадров и отображении на дисплее 0 - 50:
+  <input type="number" name="V_offset_x" value=%V_offset_x% min="0" max="50">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <form action="/get" target="hidden-form">
+    Доп. уровень бинаризации для поиска цифр по y 30:
+  <input type="number" name="V_level_find_digital_Y" value=%V_level_find_digital_Y% min="0" max="100">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <form action="/get" target="hidden-form">
+    Доп. уровень бинаризации для поиска цифр по X 60 70 80:
+  <input type="number" name="V_level_find_digital_X" value=%V_level_find_digital_X% min="0" max="150">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
+
+  <form action="/get" target="hidden-form">
+    Доп. уровень бинаризации при конвертации в 32 бита 15 73 25 50:
+  <input type="number" name="V_level_convert_to_32" value=%V_level_convert_to_32% min="0" max="150">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)rawliteral";
-
- /*
-  <form action="/get" target="hidden-form">
-    inputString (current value %inputString%): <input type="text" name="inputString">
-    <input type="submit" value="Submit" onclick="submitMessage()">
-  </form><br>
-  <form action="/get" target="hidden-form">
-    inputFloat (current value %inputFloat%): <input type="number " name="inputFloat">
-    <input type="submit" value="Submit" onclick="submitMessage()">
-  </form>
- */
-
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -156,33 +185,33 @@ frame area_frame;
 
 #define max_shift 9*3 //число вариантов сдвига перемещения эталона
 int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
-  {0, 0},
-  {0, 1},   //up
-  {0, 2},   //up
-  {0, 3},   //up
-  {0, 4},   //up
-  {0, -1},  //down
-  {0, -2},  //down
-  {0, -3},  //down
-  {0, -4},  //down
-  {1, 0},   //right
-  {1, 1},   //right up
-  {1, 2},   //right up
-  {1, 3},   //right up
-  {1, 4},   //right up
-  {1, -1},  //right down
-  {1, -2},  //right down
-  {1, -3},  //right down
-  {1, -4},  //right down
-  { -1, 0}, //left
-  { -1, 1}, //left up
-  { -1, 2}, //left up
-  { -1, 3}, //left up
-  { -1, 4}, //left up
-  { -1, -1},//left down
-  { -1, -2},//left down
-  { -1, -3},//left down
-  { -1, -4},//left down
+  {0  ,  0},	//none
+  {0  ,  1},   	//up
+  {0  ,  2},   	//up
+  {0  ,  3},   	//up
+  {0  ,  4},   	//up
+  {0  , -1},  	//down
+  {0  , -2},  	//down
+  {0  , -3},  	//down
+  {0  , -4},  	//down
+  {1  ,  0},   	//right
+  {1  ,  1},   	//right up
+  {1  ,  2},   	//right up
+  {1  ,  3},   	//right up
+  {1  ,  4},   	//right up
+  {1  , -1},  	//right down
+  {1  , -2},  	//right down
+  {1  , -3},  	//right down
+  {1  , -4},  	//right down
+  { -1,  0}, 	//left
+  { -1,  1}, 	//left up
+  { -1,  2}, 	//left up
+  { -1,  3}, 	//left up
+  { -1,  4}, 	//left up
+  { -1, -1},	//left down
+  { -1, -2},	//left down
+  { -1, -3},	//left down
+  { -1, -4},	//left down
 };
 
 #define FACE_COLOR_WHITE  0x00FFFFFF
@@ -260,8 +289,6 @@ uint16_t position_m3 = 0; //позиция сохранения данных
 int offset_y_current; //текущее дополнительное смещение по оси Y
 
 
-
-
 void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
@@ -300,6 +327,24 @@ String processor(const String& var){
   }
   else if(var == "inputIntY2"){
     return String(V[V_CropY2]);
+  }
+  else if(var == "FlashLED"){
+    return String(V[V_Flash]?"checked":"");
+  }
+  else if(var == "V_offset_y"){
+    return String(V[V_offset_y]);
+  }
+  else if(var == "V_offset_x"){
+    return String(V[V_offset_x]);
+  }
+  else if(var == "V_level_find_digital_Y"){
+    return String(V[V_level_find_digital_Y]);
+  }
+  else if(var == "V_level_find_digital_X"){
+    return String(V[V_level_find_digital_X]);
+  }
+  else if(var == "V_level_convert_to_32"){
+    return String(V[V_level_convert_to_32]);
   }
   return String();
 }
@@ -1260,18 +1305,66 @@ void setup() {
     if 		(request->hasParam("inputIntX1")) {
 		inputMessage = request->getParam("inputIntX1")->value();
 		V[V_CropX1] = inputMessage.toInt();
+
+		store_check_limits(V[V_CropX1], 0, V[V_CropX2], "/V_CropX1.txt");
     }
     else if (request->hasParam("inputIntX2")) {
         inputMessage = request->getParam("inputIntX2")->value();
         V[V_CropX2] = inputMessage.toInt();
+
+        store_check_limits(V[V_CropX2], V[V_CropX1], 320, "/V_CropX2.txt");
     }
     else if (request->hasParam("inputIntY1")) {
         inputMessage = request->getParam("inputIntY1")->value();
         V[V_CropY1] = inputMessage.toInt();
+
+        store_check_limits(V[V_CropY1], 0, V[V_CropY1], "/V_CropY1.txt");
     }
     else if (request->hasParam("inputIntY2")) {
         inputMessage = request->getParam("inputIntY2")->value();
         V[V_CropY2] = inputMessage.toInt();
+
+        store_check_limits(V[V_CropY2], V[V_CropY1], 240, "/V_CropY2.txt");
+    }
+    else if (request->hasParam("FlashLED")) {
+        inputMessage = request->getParam("FlashLED")->value();
+
+        Serial.printf("inputMessage = %s\r\n", inputMessage);
+
+
+        V[V_Flash] = (inputMessage == "checked");
+
+        store_check_limits(V[V_Flash], 0, 1, "/V_Flash.txt");
+    }
+    else if (request->hasParam("V_offset_y")) {
+        inputMessage = request->getParam("V_offset_y")->value();
+        V[V_offset_y] = inputMessage.toInt();
+
+        store_check_limits(V[V_offset_y], 20, 250, "/V_offset_y.txt");
+    }
+    else if (request->hasParam("V_offset_x")) {
+        inputMessage = request->getParam("V_offset_x")->value();
+        V[V_offset_x] = inputMessage.toInt();
+
+        store_check_limits(V[V_offset_x], 0,   50, "/V_offset_x.txt");
+    }
+    else if (request->hasParam("V_level_find_digital_Y")) {
+        inputMessage = request->getParam("V_level_find_digital_Y")->value();
+        V[V_level_find_digital_Y] = inputMessage.toInt();
+
+        store_check_limits(V[V_level_find_digital_Y], 0, 100, "/V_level_find_digital_Y.txt");
+    }
+    else if (request->hasParam("V_level_find_digital_X")) {
+        inputMessage = request->getParam("V_level_find_digital_X")->value();
+        V[V_level_find_digital_X] = inputMessage.toInt();
+
+        store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
+    }
+    else if (request->hasParam("V_level_convert_to_32")) {
+        inputMessage = request->getParam("V_level_convert_to_32")->value();
+        V[V_level_convert_to_32] = inputMessage.toInt();
+
+        store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
     }
     else {
     	inputMessage = "No message sent";
@@ -1302,9 +1395,12 @@ void setup() {
     return;
   }
 
-  EEPROM.begin(16);//Установить размер внутренней памяти для хранения первоначальных значений
+  // Initialize SPIFFS
+  if(!SPIFFS.begin(true)){
+    Serial.println("An Error has occurred while mounting SPIFFS");
+  }
 
-  init_V(); //инициализация начальных данных
+  init_V(); //инициализация начальных данных from SPIFFS
   
   for(uint8_t dig = 0; dig < number_letter; dig++) //обнулить частоту использования эталонов
     for(uint8_t i = 0; i < number_of_samples; i++) 
@@ -1554,15 +1650,12 @@ void loop() {
 
 		  Serial.printf("Суммарное расстояние Хемминга=%d при cмещении=%d итоговое смещение=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
 		}
-		change_variables(false); //если были изменения коэффициентов записать
+
+        store_check_limits(V[V_level_find_digital_Y], 0, 100, "/V_level_find_digital_Y.txt");
+        store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
+        store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
+
 	  } //попробовать смещение по оси Y
-
-
-
-
-
-
-
 
 
 	  //поиск минимального суммарного значения расстояния Хемминга для всех цифр при разном смещении
