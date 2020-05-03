@@ -9,10 +9,12 @@
 #include <esp_camera.h>
 #include <WiFi.h>
 #include <esp_timer.h>
-#include "img_converters.h"
+//#include "img_converters.h"
 #include "Arduino.h"
-#include "fb_gfx.h"
 
+#include "fb_gfx.h"
+#include "fd_forward.h"
+#include "fr_forward.h"
 
 //#include "driver/rtc_io.h"
 #include <ESPAsyncWebServer.h>
@@ -98,19 +100,23 @@ const char config_html[] PROGMEM = R"rawliteral(
   </script></head><body>
 
   <form action="/get" target="hidden-form">
-    inputInt (current value %inputIntX1%): <input type="number " name="inputIntX1">
+    Crop area coodinates X1:
+	<input type="number" name="inputIntX1" value=%inputIntX1%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
   <form action="/get" target="hidden-form">
-    inputInt (current value %inputIntY1%): <input type="number " name="inputIntY1">
+    Crop area coodinates Y1:
+	<input type="number" name="inputIntY1" value=%inputIntY1%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
   <form action="/get" target="hidden-form">
-    inputInt (current value %inputIntX2%): <input type="number " name="inputIntX2">
+    Crop area coodinates X2:
+	<input type="number" name="inputIntX2" value=%inputIntX2%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
   <form action="/get" target="hidden-form">
-    inputInt (current value %inputIntY2%): <input type="number " name="inputIntY2">
+    Crop area coodinates Y2:
+	<input type="number" name="inputIntY2" value=%inputIntY2%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
@@ -145,7 +151,8 @@ uint16_t max_letter_x[number_letter]; //массив середины цифры
 uint32_t l_32[number_letter][F_HEIGHT]; //массив после перевода распознаваемых цифр в 32 битное число. Запас по высоте равен высоте экрана
 uint8_t result[average_count][number_letter]; //накопление результатов распознавания цифр со шкалы
 
-uint16_t *frame_buf; //указатель на буфер для накопления кадров камеры
+HDR frame_buf;
+frame area_frame;
 
 #define max_shift 9*3 //число вариантов сдвига перемещения эталона
 int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
@@ -178,6 +185,15 @@ int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
   { -1, -4},//left down
 };
 
+#define FACE_COLOR_WHITE  0x00FFFFFF
+#define FACE_COLOR_BLACK  0x00000000
+#define FACE_COLOR_RED    0x000000FF
+#define FACE_COLOR_GREEN  0x0000FF00
+#define FACE_COLOR_BLUE   0x00FF0000
+#define FACE_COLOR_YELLOW (FACE_COLOR_RED | FACE_COLOR_GREEN)
+#define FACE_COLOR_CYAN   (FACE_COLOR_BLUE | FACE_COLOR_GREEN)
+#define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
+
 struct Hemming_struct { //структура расстояний Хемминга для всех цифр шкалы
   uint8_t result; // опознанная цифра
   uint16_t min_Hemming; // расстояния Хемминга для опознанной цифры
@@ -189,6 +205,8 @@ struct Hemming_struct { //структура расстояний Хемминг
   uint8_t britnes_digital; //яркость для каждой буквы
   uint16_t x_width; //определенная ширина цифры
 } Hemming[number_letter];
+
+
 
 uint8_t frequency[number_of_samples][number_letter]; //подсчет максимального числа совпадений результатов распознавания
 
@@ -240,6 +258,52 @@ struct Gas_struct {
 uint16_t position_m3 = 0; //позиция сохранения данных
 
 int offset_y_current; //текущее дополнительное смещение по оси Y
+
+
+
+
+void notFound(AsyncWebServerRequest *request) {
+  request->send(404, "text/plain", "Not found");
+}
+
+int genBufferChunk(char *buffer, int maxLen, size_t index, char *DataBuf, size_t DataSize)
+{
+      size_t max 	 = (ESP.getFreeHeap() / 3) & 0xFFE0;
+
+      // Get the chunk based on the index and maxLen
+      size_t len = DataSize - index;
+      if (len > maxLen) len = maxLen;
+      if (len > max) len = max;
+      if (len > 0){
+    	  if(0==index){
+    		  Serial.printf(PSTR("[WEB] Sending chunked buffer (max chunk size: %4d) "), max);
+    	  }
+		  memcpy_P(buffer, DataBuf + index, len);
+		  Serial.printf(PSTR("."));
+      }
+      if (len == 0) Serial.printf(PSTR("\r\n"));
+      // Return the actual length of the chunk (0 for end of file)
+      return len;
+}
+
+// Replaces placeholder with stored values
+String processor(const String& var){
+  //Serial.println(var);
+  if(var == "inputIntX1"){
+    return String(V[V_CropX1]);
+  }
+  else if(var == "inputIntX2"){
+    return String(V[V_CropX2]);
+  }
+  else if(var == "inputIntY1"){
+    return String(V[V_CropY1]);
+  }
+  else if(var == "inputIntY2"){
+    return String(V[V_CropY2]);
+  }
+  return String();
+}
+
 
 //---------------------------------------------------- m3_calculate
 void m3_calculate() {
@@ -969,16 +1033,21 @@ esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid
 
 
 //---------------------------------------------------- sum_frames
-esp_err_t sum_frames(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_down) {
+esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
   uint32_t tstart;
   fb = NULL;
+
+  uint16_t W = area_frame->X2 - area_frame->X1;
+  uint16_t H = area_frame->Y2 - area_frame->Y1;
 
   //накопление кадров - проинтегрировать несколько кадров для устранения шумов
   tstart = clock();
 
-  memset(fr_buf, 0, F_WIDTH * F_HEIGHT * 2); //выделить память и очистить размер в байтих
+  memset(fr_buf->buf, 0, W * H * sizeof(uint16_t)); //выделить память и очистить размер в байтих
+  fr_buf->Max = 0x0000;
+  fr_buf->Min = 0xFFFF;
 
-  uint8_t frame_c = V[V_number_of_sum_frames];
+  uint8_t frame_c = count;
   if (s->pixformat != PIXFORMAT_GRAYSCALE)
     frame_c = 1; //если цветное то не суммировать по кадрам
 
@@ -995,41 +1064,91 @@ esp_err_t sum_frames(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_down) 
 
     uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
 
-    for (uint16_t y = 0; y < F_HEIGHT; y++) { //работаем только с верхней частью кадра
-      for (uint16_t x = 0; x < fb->width; x++) {
-        if (s->pixformat == PIXFORMAT_GRAYSCALE) {
-          uint32_t i = ((y + V[V_offset_y] + offset_y_current) * fb->width + x + V[V_offset_x]); //смещенее по оси Y и Х
-          uint32_t j = (y * fb->width + x); //GRAYSCALE
-          if ((y < Y_up) || (y > Y_down)) {
-            fr_buf[j] = 0; //обнулим значения ниже и выше Y - иммитация шторки
-            //            Serial.printf("\n");
-          }
-          else {
-            if (i < i_max) //размер экрана (176)+смещенее может быть больше размера изображения 240
-              fr_buf[j] += fb->buf[i];
-            else
-              fr_buf[j] = 0;
-          }
-        }
-        else { //если RGB565 берем 8 битный буфер и преобразуем в 16 битный
-          uint32_t i = (y * fb->width + x) << 1; //если RGB565
-          uint32_t j = (y * fb->width + x); //если RGB565
-          //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
-          fr_buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
-        }
-      }
-    }
+    //proceed only cropped area of the frame
+    for (uint16_t y = area_frame->Y1; y < area_frame->Y2; y++)
+    for (uint16_t x = area_frame->X1; x < area_frame->X2; x++) {
+
+    	  uint32_t i = (y * fb->width + x); // fb->buf adress from coordinates
+		  uint32_t j = (y - area_frame->Y1) * W + (x-area_frame->X1); // fr_buf adress from coordinates
+
+    	  if (s->pixformat == PIXFORMAT_GRAYSCALE) {
+    		  fr_buf->buf[j] += fb->buf[i]; // accumulate cropped area
+    	  }
+    	  else { //если RGB565 берем 8 битный буфер и преобразуем в 16 битный
+			  i <<= 1; //если RGB565
+			  //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
+			  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
+    	  }
+    	  fr_buf->Max = fr_buf->Max > fr_buf->buf[j] ? fr_buf->Max : fr_buf->buf[j];
+    	  fr_buf->Min = fr_buf->Min < fr_buf->buf[j] ? fr_buf->Min : fr_buf->buf[j];
+     }
+
   } //суммирование по кадрам
 
-  //усредним все пиксели
-  for (uint16_t i = 0; i < F_WIDTH * F_HEIGHT; i++) {
-    fr_buf[i] = (uint16_t)(fr_buf[i] / frame_c);
-  }
+  Serial.printf(PSTR("[CAPTURE] Free heap before RGB888: %d bytes\n"), ESP.getFreeHeap());
 
   if (fb) { //освободить буфер
+
+	// Get last frame to JPEG compression
+	if(fb->format != PIXFORMAT_JPEG){
+
+	    dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, fb->width, fb->height, 3);
+	    if (!image_matrix) {
+	        Serial.println("dl_matrix3du_alloc failed");
+	    }
+	    else{
+
+	        size_t out_len, out_width, out_height;
+	        uint8_t * out_buf;
+
+	        out_buf = image_matrix->item;
+	        out_len = fb->width * fb->height * 3;
+	        out_width = fb->width;
+	        out_height = fb->height;
+
+	        if(!fmt2rgb888(fb->buf, fb->len, fb->format, out_buf)){
+	            Serial.println("to rgb888 failed");
+	        }
+	        else{
+
+	            fb_data_t colour_buf;
+	            colour_buf.width = image_matrix->w;
+	            colour_buf.height = image_matrix->h;
+	            colour_buf.data = image_matrix->item;
+	            colour_buf.bytes_per_pixel = 3;
+	            colour_buf.format = FB_BGR888;
+
+	            // rectangle box
+				int x = (int)V[V_CropX1];
+				int y = (int)V[V_CropY1];
+				int w = (int)V[V_CropX2] - x + 1;
+				int h = (int)V[V_CropY2] - y + 1;
+
+				fb_gfx_drawFastHLine(&colour_buf, x, y, w, 		FACE_COLOR_GREEN);
+				fb_gfx_drawFastHLine(&colour_buf, x, y+h-1, w, 	FACE_COLOR_GREEN);
+				fb_gfx_drawFastVLine(&colour_buf, x, y, h, 		FACE_COLOR_GREEN);
+				fb_gfx_drawFastVLine(&colour_buf, x+w-1, y, h, 	FACE_COLOR_GREEN);
+
+				Serial.printf(PSTR("[CAPTURE] Free heap after RGB888: %d bytes\n"), ESP.getFreeHeap());
+
+			    if(!fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 80, &full_frame_jpg_buf, &full_frame_jpg_buf_len)){
+			        Serial.println("JPEG compression failed");
+			    }
+				else{
+					Serial.printf("JPEG compression done. Jpeg size is %i bytes\r\n", full_frame_jpg_buf_len);
+				}
+	        }
+	    }
+        dl_matrix3du_free(image_matrix);
+        image_matrix = NULL;
+	}
+
     esp_camera_fb_return(fb);
     fb = NULL;
   }
+
+  Serial.printf(PSTR("[CAPTURE] Free heap after RGB888 and JPEG: %d bytes\n"), ESP.getFreeHeap());
+
   if (show) {
     Serial.printf("Capture camera time: %u ms of %d frames\n", clock() - tstart, frame_c);
   }
@@ -1037,27 +1156,8 @@ esp_err_t sum_frames(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_down) 
 }
 //---------------------------------------------------- sum_frames
 
-
-//---------------------------------------------------- camera_capture
-esp_err_t camera_capture(uint16_t *fr_buf, bool show, uint8_t Y_up, uint8_t Y_down) {
-  //сумировать кадры
-  if (sum_frames(fr_buf, show, Y_up, Y_down) != ESP_OK) return ESP_FAIL;
-
-  uint32_t tstart = clock();
-  if (show) {
-    dispalay_ttf_B_W(fr_buf, 0, 0);
-    Serial.printf("Send buffer time: %u ms\n", clock() - tstart);
-  }
-
-  return ESP_OK;
-}
-//---------------------------------------------------- camera_capture
-
-
 //---------------------------------------------------- setup
 void setup() {
-
-
 
   Serial.begin(115200);
   Serial.setDebugOutput(false);
@@ -1110,8 +1210,8 @@ void setup() {
   WiFi_Connect();
 
   uint32_t f8  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  frame_buf = (uint16_t *)heap_caps_calloc(F_WIDTH * F_HEIGHT * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (frame_buf == NULL) {
+  frame_buf.buf = (uint16_t *)heap_caps_calloc(F_WIDTH * F_HEIGHT * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (frame_buf.buf == NULL) {
     Serial.printf("malloc failed frame_buf\n");
   }
   else {
@@ -1183,9 +1283,6 @@ void setup() {
   server.onNotFound(notFound);
 
 
-
-
-
   for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
     Gas[i].m3 = 0;
     Gas[i].minutes = 0;
@@ -1223,48 +1320,6 @@ void setup() {
 //---------------------------------------------------- setup
 
 
-void notFound(AsyncWebServerRequest *request) {
-  request->send(404, "text/plain", "Not found");
-}
-
-int genBufferChunk(char *buffer, int maxLen, size_t index, char *DataBuf, size_t DataSize)
-{
-      size_t max 	 = (ESP.getFreeHeap() / 3) & 0xFFE0;
-
-      // Get the chunk based on the index and maxLen
-      size_t len = DataSize - index;
-      if (len > maxLen) len = maxLen;
-      if (len > max) len = max;
-      if (len > 0){
-    	  if(0==index){
-    		  Serial.printf(PSTR("[WEB] Sending chunked buffer (max chunk size: %4d) "), max);
-    	  }
-		  memcpy_P(buffer, DataBuf + index, len);
-		  Serial.printf(PSTR("."));
-      }
-      if (len == 0) Serial.printf(PSTR("\r\n"));
-      // Return the actual length of the chunk (0 for end of file)
-      return len;
-}
-
-// Replaces placeholder with stored values
-String processor(const String& var){
-  //Serial.println(var);
-  if(var == "inputIntX1"){
-    return String(V[V_CropX1]);
-  }
-  else if(var == "inputIntX2"){
-    return String(V[V_CropX2]);
-  }
-  else if(var == "inputIntY1"){
-    return String(V[V_CropY1]);
-  }
-  else if(var == "inputIntY2"){
-    return String(V[V_CropY2]);
-  }
-  return String();
-}
-
 //---------------------------------------------------- WiFi_Connect
 void WiFi_Connect()
 {
@@ -1285,7 +1340,7 @@ void WiFi_Connect()
     WiFi.softAP("ESP32", "87654321");
     Serial.printf("\nWiFi %s not found create AP Name - 'ESP32' Password - '87654321'\n", ssid);
     Serial.printf("Camera Stream Ready! Go to: http://");
-    Serial.printf("%s\n", WiFi.softAPIP().toString());
+    Serial.printf("%s\n", WiFi.softAPIP().toString().c_str());
   }
 
   if (WiFi.getAutoConnect() != true)    //configuration will be saved into SDK flash area
@@ -1418,121 +1473,134 @@ void show_result(bool show) {
 }
 //---------------------------------------------------- show_result
 
-//uint32_t free_heap;
-bool V_GBW_old = false;
 
 //---------------------------------------------------- loop
 void loop() {
 
-#define min_max_offset_y_test 3 //значенее смещения +/-1 или 0
-  uint16_t Sum_min_Hemming[min_max_offset_y_test]; //количество вариантов поиска смещения по оси Y для автоматической подстройки
+	#define min_max_offset_y_test 3 //значенее смещения +/-1 или 0
+	uint16_t Sum_min_Hemming[min_max_offset_y_test]; //количество вариантов поиска смещения по оси Y для автоматической подстройки
+	static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
 
-  static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
+	if (takeNewPhoto) {
 
-  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
-    offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //к уже определенному ранее значению смещения попробовать новое смещение +/-1 или 0
+	  area_frame.X1 = (int)V[V_CropX1];
+	  area_frame.X2 = (int)V[V_CropY1];
+	  area_frame.X2 = (int)V[V_CropX2];
+	  area_frame.Y2 = (int)V[V_CropY2];
 
-    for (uint8_t dig = 0; dig < number_letter; dig++) { //обнулить массив для поиска частоты повторения цифр
-      for (uint8_t i = 0; i < number_of_samples; i++) { //перебор по всем значения образцов
-        frequency[i][dig] = 0;
-      }
-    }
+	  sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames]);		//Get required number of frames from camera and integrate them
+	  Serial.printf("HDR image. Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.Max, frame_buf.Min);
 
-    for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
 
-      if (V[V_RESTART]) ESP.restart(); //если нажата клавиша перезагрузки в приложении - перегрузить. Пароль 1234
 
-      if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
+	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
 
-      if (V[V_GBW] == 2) { 														//Вывод полного экрана без анализа
-        camera_capture(frame_buf, false, 0, F_HEIGHT); 							//получить кадры с камеры и усреднить их
-        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); 	//повысим на 5-20 единиц, чтобы убрать засветку
-        V_GBW_old = true;
-      }
-      else {
-        //if (V_GBW_old) tft.clear(); //очистка после вывода полного экрана без анализа
-        V_GBW_old = false;
+		offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //к уже определенному ранее значению смещения попробовать новое смещение +/-1 или 0
 
-        if (V[V_GBW] == 1)
-          camera_capture(frame_buf, false, V[V_level_Y_up] - 10, V[V_level_Y_down] + 10); //получить кадры с камеры и усреднить их
-        else
-          camera_capture(frame_buf, false, V[V_level_Y_up], V[V_level_Y_down]); //получить кадры с камеры и усреднить их
-        //найти средний уровень пикселей окна табло
-        pixel_level = find_middle_level_image(frame_buf, false);
+		for (uint8_t dig = 0; dig < number_letter; dig++) { //обнулить массив для поиска частоты повторения цифр
+		  for (uint8_t i = 0; i < number_of_samples; i++) { //перебор по всем значения образцов
+			frequency[i][dig] = 0;
+		  }
+		}
 
-        //отображение на дисплеи
-        dispalay_ttf_B_W(frame_buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
+		for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
 
-        //  free_heap  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-        //поиск положения окна цифр - при найденом уровне по оси y
-        find_digits_y(frame_buf, pixel_level, V[V_level_find_digital_Y], false); //уровень повысим на 15 единиц, чтобы убрать засветку
-        //  Serial.printf("heap = %d\n",free_heap-heap_caps_get_free_size(MALLOC_CAP_8BIT));
+			if (V[V_RESTART]) ESP.restart(); //если нажата клавиша перезагрузки в приложении - перегрузить. Пароль 1234
 
-        //поиск максимума - предположительно середины цифр
-        find_max_digital_X(frame_buf, pixel_level, V[V_level_find_digital_X], false); //уровень повысим на 7 единиц, чтобы убрать засветку
+			if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-        //найти средний уровень для каждой цифры
-        find_middle_britnes_digital(frame_buf, false);
+			//найти средний уровень пикселей окна табло
+			pixel_level = find_middle_level_image(frame_buf.buf, false);
 
-        //преобразование в 32 битное числа
-        convert_to_32(frame_buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
+			//отображение на дисплеи
+			dispalay_ttf_B_W(frame_buf.buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
 
-        //сравнить с эталоном - рассчет расстояния Хемминга
-        for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
-          result[count][dig] = image_recognition(dig, V[V_show_digital]);
-          frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
-        }
-      }
-    } //повторим результат и найдем опознаные числа
+			//  free_heap  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+			//поиск положения окна цифр - при найденом уровне по оси y
+			find_digits_y(frame_buf.buf, pixel_level, V[V_level_find_digital_Y], false); //уровень повысим на 15 единиц, чтобы убрать засветку
+			//  Serial.printf("heap = %d\n",free_heap-heap_caps_get_free_size(MALLOC_CAP_8BIT));
 
-    if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
+			//поиск максимума - предположительно середины цифр
+			find_max_digital_X(frame_buf.buf, pixel_level, V[V_level_find_digital_X], false); //уровень повысим на 7 единиц, чтобы убрать засветку
 
-    if (V[V_GBW] != 2) {
-      show_result(true);
+			//найти средний уровень для каждой цифры
+			find_middle_britnes_digital(frame_buf.buf, false);
 
-      //суммарное значение расстояния Хемминга для всех цифр при разном смещении
+			//преобразование в 32 битное числа
+			convert_to_32(frame_buf.buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
 
-      Sum_min_Hemming[offset_y_test] = 0; //обнулим для последующего накопления
-      for (uint8_t dig = 0; dig < number_letter - 1; dig++) //без последней цифры
-        Sum_min_Hemming[offset_y_test] += Hemming[dig].min_Hemming;
-      V[V_Sum_min_Hemming_current] =  Sum_min_Hemming[offset_y_test]; //передадим текущее значение в приложение
+			//сравнить с эталоном - рассчет расстояния Хемминга
+			for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
+			  result[count][dig] = image_recognition(dig, V[V_show_digital]);
+			  frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
+			}
 
-      V[V_offset_y_current] = (offset_y_test - 1);
+		} //повторим результат и найдем опознаные числа
 
-      Serial.printf("Суммарное расстояние Хемминга=%d при cмещении=%d итоговое смещение=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
-    }
-    change_variables(false); //если были изменения коэффициентов записать
-  } //попробовать смещение по оси Y
+		if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-  //поиск минимального суммарного значения расстояния Хемминга для всех цифр при разном смещении
-  uint16_t Sum_min = Sum_min_Hemming[0]; //минимальное значение расстояния Хемминга
-  uint8_t Sum_min_offset_y_test = 0; //смещение по оси Y
-  
-  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
-     if (Sum_min > Sum_min_Hemming[offset_y_test]) {
-      Sum_min = Sum_min_Hemming[offset_y_test];
-      Sum_min_offset_y_test = offset_y_test;
-    }
-  }
+		if (V[V_GBW] != 2) {
+		  show_result(true);
 
-  if (V[V_GBW] != 2) {
-    V[V_Sum_min_Hemming] =  Sum_min; //передадим текущее значение в приложение
-    if (V[V_Sum_min_Hemming] > 250) { //суммарное значенее расстояния Хемминга не должно быть более 250
-      V[V_Sum_min_Hemming_error]++;
-      Serial.printf("Очевидно сбой суммарное расстояние Хемминга=%.0f всего ошибок=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
-    }
-    else {
-      V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //запомним лучшее значение
-    }
 
-    Serial.printf("Результат суммарное расстояние Хемминга=%d при смещении=%d итоговое смещение=%.0f всего сбоев %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
-  }
+		  //суммарное значение расстояния Хемминга для всех цифр при разном смещении
 
-  if (WiFi.status() != WL_CONNECTED) {
-    WiFi_Lost++;
-    Serial.printf("Сеть потеряна %d\n", WiFi_Lost);
-  }
-  else WiFi_Lost = 0;
-  if (WiFi_Lost == 6) WiFi_Connect(); //если нет связи около 4 минут пересоединиться
+		  Sum_min_Hemming[offset_y_test] = 0; //обнулим для последующего накопления
+		  for (uint8_t dig = 0; dig < number_letter - 1; dig++) //без последней цифры
+			Sum_min_Hemming[offset_y_test] += Hemming[dig].min_Hemming;
+		  V[V_Sum_min_Hemming_current] =  Sum_min_Hemming[offset_y_test]; //передадим текущее значение в приложение
+
+		  V[V_offset_y_current] = (offset_y_test - 1);
+
+		  Serial.printf("Суммарное расстояние Хемминга=%d при cмещении=%d итоговое смещение=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
+		}
+		change_variables(false); //если были изменения коэффициентов записать
+	  } //попробовать смещение по оси Y
+
+
+
+
+
+
+
+
+
+	  //поиск минимального суммарного значения расстояния Хемминга для всех цифр при разном смещении
+	  uint16_t Sum_min = Sum_min_Hemming[0]; //минимальное значение расстояния Хемминга
+	  uint8_t Sum_min_offset_y_test = 0; //смещение по оси Y
+
+	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
+		 if (Sum_min > Sum_min_Hemming[offset_y_test]) {
+		  Sum_min = Sum_min_Hemming[offset_y_test];
+		  Sum_min_offset_y_test = offset_y_test;
+		}
+	  }
+
+	  if (V[V_GBW] != 2) {
+		V[V_Sum_min_Hemming] =  Sum_min; //передадим текущее значение в приложение
+		if (V[V_Sum_min_Hemming] > 250) { //суммарное значенее расстояния Хемминга не должно быть более 250
+		  V[V_Sum_min_Hemming_error]++;
+		  Serial.printf("Очевидно сбой суммарное расстояние Хемминга=%.0f всего ошибок=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
+		}
+		else {
+		  V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //запомним лучшее значение
+		}
+
+		Serial.printf("Результат суммарное расстояние Хемминга=%d при смещении=%d итоговое смещение=%.0f всего сбоев %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
+	  }
+
+
+	  takeNewPhoto = false;
+	}
+
+	if (WiFi.status() != WL_CONNECTED) {
+		WiFi_Lost++;
+		Serial.printf("Сеть потеряна %d\n", WiFi_Lost);
+	}
+	else WiFi_Lost = 0;
+	if (WiFi_Lost == 6) WiFi_Connect(); //если нет связи около 4 минут пересоединиться
+
+	delay(1000);
+
 }
 //---------------------------------------------------- loop

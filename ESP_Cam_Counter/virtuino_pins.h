@@ -8,7 +8,18 @@ float V[V_memory_count];           // This array is synchronized with Virtuino V
 //---
 boolean debug = false;              // set this variable to false on the finale code to decrease the request time.
 
+typedef struct {
+	unsigned short *buf; 	//указатель на буфер для накопления кадров камеры
+	uint16_t Max; 	//Max pixel brightness
+	uint16_t Min; 	//Min pixel brightness
+} HDR;
 
+typedef struct {
+	uint16_t X1;
+	uint16_t Y1;
+	uint16_t X2;
+	uint16_t Y2;
+} frame;
 
 //Опеределенее ячеек памяти на сервере virtuino
 
