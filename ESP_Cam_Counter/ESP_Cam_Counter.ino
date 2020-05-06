@@ -78,6 +78,7 @@ const char index_html[] PROGMEM = R"rawliteral(
     </p>
   </div>
   <div><img src="full-frame" id="photo"></div>
+  <div><img src="crop01-frame" id="photo"></div>
 </body>
 <script>
   function capturePhoto() {
@@ -168,8 +169,8 @@ const char config_html[] PROGMEM = R"rawliteral(
 AsyncWebServer server(80);
 boolean takeNewPhoto = false;
 
-size_t 		full_frame_jpg_buf_len;	// Pointers to JPEG compessed buffer
-uint8_t * 	full_frame_jpg_buf = NULL;
+JPEG jpeg_full_frame;	// Initial camera image
+JPEG jpeg_crop_HDR;		// Cropped HDR stage
 
 uint16_t Y_first, Y_last; //положение окна расположения цифр в буфере камеры
 
@@ -1077,20 +1078,77 @@ esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid
 //---------------------------------------------------- dispalay_ttf_B_W
 
 
+//---------------------------------------------------- HDR_2_jpeg
+esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
+  uint32_t tstart;
+
+  tstart = clock();
+
+  if (show) {
+	  Serial.printf(PSTR("[HDR_2_jpeg] Free heap before call: %d bytes\n"), ESP.getFreeHeap());
+  }
+
+  dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, fr_buf->width, fr_buf->height, 3);
+  if (!image_matrix) {
+      Serial.println("[HDR_2_jpeg] dl_matrix3du_alloc failed");
+  }
+  else{
+
+	  // Rescale HDR to 8bit bitmap matrix
+	  for (uint16_t y = 0; y < fr_buf->height; y++)
+	  for (uint16_t x = 0; x < fr_buf->width; x++) {
+
+		  uint32_t i = (y * fr_buf->width + x); // fr_buf->buf adress from coordinates
+
+		  // rescale
+		  uint32_t t = fr_buf->buf[i]-fr_buf->min;
+		  t *= 256;
+		  t /= (fr_buf->max - fr_buf->min)+1;
+		  image_matrix->item[i*3+0] = (uint8_t) t;
+		  image_matrix->item[i*3+1] = (uint8_t) t;
+		  image_matrix->item[i*3+2] = (uint8_t) t;
+	  }
+
+      size_t out_len = image_matrix->w * image_matrix->h * 3;
+
+	  if(!fmt2jpg(image_matrix->item, out_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
+		  Serial.println("[HDR_2_jpeg] JPEG compression failed");
+	  }
+	  else{
+		  Serial.printf("[HDR_2_jpeg] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_Out->buf_len);
+	  }
+
+  }
+  dl_matrix3du_free(image_matrix);
+  image_matrix = NULL;
+
+
+
+  if (show) {
+	  Serial.printf(PSTR("[HDR_2_jpeg] Free heap after call: %d bytes\n"), ESP.getFreeHeap());
+	  Serial.printf(PSTR("[HDR_2_jpeg] time consume: %u ms\n"), clock() - tstart);
+  }
+  return ESP_OK;
+}
+//---------------------------------------------------- HDR_2_jpeg
+
+
+
+
 //---------------------------------------------------- sum_frames
-esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
+esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
   uint32_t tstart;
   fb = NULL;
 
-  uint16_t W = area_frame->X2 - area_frame->X1;
-  uint16_t H = area_frame->Y2 - area_frame->Y1;
+  uint16_t W = area_frame.X2 - area_frame.X1;
+  uint16_t H = area_frame.Y2 - area_frame.Y1;
 
   //накопление кадров - проинтегрировать несколько кадров для устранения шумов
   tstart = clock();
 
   memset(fr_buf->buf, 0, W * H * sizeof(uint16_t)); //выделить память и очистить размер в байтих
-  fr_buf->Max = 0x0000;
-  fr_buf->Min = 0xFFFF;
+  fr_buf->max = 0x0000;
+  fr_buf->min = 0xFFFF;
 
   uint8_t frame_c = count;
   if (s->pixformat != PIXFORMAT_GRAYSCALE)
@@ -1110,11 +1168,11 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
     uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
 
     //proceed only cropped area of the frame
-    for (uint16_t y = area_frame->Y1; y < area_frame->Y2; y++)
-    for (uint16_t x = area_frame->X1; x < area_frame->X2; x++) {
+    for (uint16_t y = area_frame.Y1; y < area_frame.Y2; y++)
+    for (uint16_t x = area_frame.X1; x < area_frame.X2; x++) {
 
     	  uint32_t i = (y * fb->width + x); // fb->buf adress from coordinates
-		  uint32_t j = (y - area_frame->Y1) * W + (x-area_frame->X1); // fr_buf adress from coordinates
+		  uint32_t j = (y - area_frame.Y1) * W + (x-area_frame.X1); // fr_buf adress from coordinates
 
     	  if (s->pixformat == PIXFORMAT_GRAYSCALE) {
     		  fr_buf->buf[j] += fb->buf[i]; // accumulate cropped area
@@ -1124,11 +1182,13 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 			  //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
 			  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
     	  }
-    	  fr_buf->Max = fr_buf->Max > fr_buf->buf[j] ? fr_buf->Max : fr_buf->buf[j];
-    	  fr_buf->Min = fr_buf->Min < fr_buf->buf[j] ? fr_buf->Min : fr_buf->buf[j];
+    	  fr_buf->max = fr_buf->max > fr_buf->buf[j] ? fr_buf->max : fr_buf->buf[j];
+    	  fr_buf->min = fr_buf->min < fr_buf->buf[j] ? fr_buf->min : fr_buf->buf[j];
      }
 
   } //суммирование по кадрам
+  fr_buf->width 	= area_frame.X2 - area_frame.X1;
+  fr_buf->height 	= area_frame.Y2 - area_frame.Y1;
 
   Serial.printf(PSTR("[CAPTURE] Free heap before RGB888: %d bytes\n"), ESP.getFreeHeap());
 
@@ -1164,10 +1224,10 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 	            colour_buf.format = FB_BGR888;
 
 	            // rectangle box
-				int x = (int)V[V_CropX1];
-				int y = (int)V[V_CropY1];
-				int w = (int)V[V_CropX2] - x + 1;
-				int h = (int)V[V_CropY2] - y + 1;
+				int x = (int)area_frame.X1;
+				int y = (int)area_frame.Y1;
+				int w = (int)area_frame.X2 - x + 1;
+				int h = (int)area_frame.Y2 - y + 1;
 
 				fb_gfx_drawFastHLine(&colour_buf, x, y, w, 		FACE_COLOR_GREEN);
 				fb_gfx_drawFastHLine(&colour_buf, x, y+h-1, w, 	FACE_COLOR_GREEN);
@@ -1176,11 +1236,11 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 
 				Serial.printf(PSTR("[CAPTURE] Free heap after RGB888: %d bytes\n"), ESP.getFreeHeap());
 
-			    if(!fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 80, &full_frame_jpg_buf, &full_frame_jpg_buf_len)){
+			    if(!fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 80, &jpeg_full_frame.buf, &jpeg_full_frame.buf_len)){
 			        Serial.println("JPEG compression failed");
 			    }
 				else{
-					Serial.printf("JPEG compression done. Jpeg size is %i bytes\r\n", full_frame_jpg_buf_len);
+					Serial.printf("JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_full_frame.buf_len);
 				}
 	        }
 	    }
@@ -1287,12 +1347,28 @@ void setup() {
 	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
 
 	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
-          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)full_frame_jpg_buf, full_frame_jpg_buf_len);
+          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_full_frame.buf, jpeg_full_frame.buf_len);
       });
 	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
 	  request->send(response);
 
   });
+
+  server.on("/crop01-frame", HTTP_GET, [](AsyncWebServerRequest * request) {
+
+      // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
+      // This is necessary when a TLS connection is open since it sucks too much memory
+	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
+	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+
+	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_crop_HDR.buf, jpeg_crop_HDR.buf_len);
+      });
+	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+	  request->send(response);
+
+  });
+
 
   server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request){
 	    request->send_P(200, "text/html", config_html, processor);
@@ -1318,7 +1394,7 @@ void setup() {
         inputMessage = request->getParam("inputIntY1")->value();
         V[V_CropY1] = inputMessage.toInt();
 
-        store_check_limits(V[V_CropY1], 0, V[V_CropY1], "/V_CropY1.txt");
+        store_check_limits(V[V_CropY1], 0, V[V_CropY2], "/V_CropY1.txt");
     }
     else if (request->hasParam("inputIntY2")) {
         inputMessage = request->getParam("inputIntY2")->value();
@@ -1580,14 +1656,14 @@ void loop() {
 	if (takeNewPhoto) {
 
 	  area_frame.X1 = (int)V[V_CropX1];
-	  area_frame.X2 = (int)V[V_CropY1];
+	  area_frame.Y1 = (int)V[V_CropY1];
 	  area_frame.X2 = (int)V[V_CropX2];
 	  area_frame.Y2 = (int)V[V_CropY2];
 
-	  sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames]);		//Get required number of frames from camera and integrate them
-	  Serial.printf("HDR image. Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.Max, frame_buf.Min);
+	  sum_frames(&frame_buf, true, area_frame, V[V_number_of_sum_frames]);		//Get required number of frames from camera and integrate them
+	  Serial.printf("HDR image. Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
 
-
+	  HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR);		//Itermediate result to jpeg buffer for browser
 
 	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
 

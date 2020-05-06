@@ -10,8 +10,11 @@ boolean debug = false;              // set this variable to false on the finale 
 
 typedef struct {
 	unsigned short *buf; 	//указатель на буфер для накопления кадров камеры
-	uint16_t Max; 	//Max pixel brightness
-	uint16_t Min; 	//Min pixel brightness
+	uint16_t max; 	//Max pixel brightness
+	uint16_t min; 	//Min pixel brightness
+
+	uint16_t width; //HDR image width
+	uint16_t height;//HDR image height
 } HDR;
 
 typedef struct {
@@ -20,6 +23,14 @@ typedef struct {
 	uint16_t X2;
 	uint16_t Y2;
 } frame;
+
+typedef struct {
+	uint8_t  *buf;// указатель на буфер для накопления кадров камеры
+	uint32_t buf_len;	// Buffer size
+	uint16_t width; 	// HDR image width
+	uint16_t height;	// HDR image height
+} JPEG;
+
 
 //Опеределенее ячеек памяти на сервере virtuino
 
