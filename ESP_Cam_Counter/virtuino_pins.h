@@ -39,7 +39,7 @@ typedef struct {
 #define V_number_of_sum_frames    1 //V1 - число кадров суммирования
 #define V_offset_y                2 //V2 - смещенее по оси Y при суммировании кадров и отображении на дисплее 75 85 87
 #define V_offset_x                3 //V3 - смещенее по оси X при суммировании кадров и отображении на дисплее
-#define V_level_dispalay_ttf_B_W  4 //V4 - Доп. уровень бинаризации для дисплея 15
+
 #define V_level_find_digital_Y    5 //V5 - Доп. уровень бинаризации для поиска цифр по y
 #define V_level_find_digital_X    6 //V6 - Доп. уровень бинаризации для поиска цифр по X
 
@@ -202,7 +202,6 @@ void init_V() {
   restore_variables(true);
 
   V[V_number_of_sum_frames] = old_number_of_sum_frames; //число кадров суммирования
-  V[V_level_dispalay_ttf_B_W] = V[V_level_convert_to_32]; //Доп. уровень бинаризации для дисплея совпдает с уровнем уровень бинаризации при конвертации в 32 бита
 
   V[V_show_digital] = 8;  		//V10 - номер цифры какую выводим на экран для сравнения 8 - нет вывода
   V[V_offset_x_digital] = 0; 	//V11 - смещенее по оси X при отображении на дисплеи для анализа 50 100 150

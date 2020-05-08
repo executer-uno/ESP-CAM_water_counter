@@ -46,11 +46,11 @@ struct tm timeinfo; //структура времени записи кольц�
 //++++++++++++++++++++++++++++++++++++++++++ снизить до 50
 #define Hemming_level 80 //Значенее расстояния Хемминга которое считается максимально допустимым при распознавании  50
 
-#define width_letter 26 //ширина цифр в пикселях
-#define number_letter 8 //число цифр в шкале
+#define width_letter 14 //ширина цифр в пикселях  //TODO adjustable from interface
+#define number_letter 7 //число цифр в шкале
 #define height_letter 26 //высота по y - совпадает с высотой эталона
 
-#define average_count 10 //количество усреднений результатов распознавания
+#define average_count 1 //количество усреднений результатов распознавания
 #define average_count_level average_count-3 //число усреднений, которое принимается за положительное при распознавании
 
 #define F_HEIGHT 240 //высота обработки изображения совпадает с высотой дисплея 2.0
@@ -58,6 +58,7 @@ struct tm timeinfo; //структура времени записи кольц�
 
 #include "sample.h" //образцы эталонов
 
+#define BUILD_IN_LED	4
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html>
@@ -77,9 +78,13 @@ const char index_html[] PROGMEM = R"rawliteral(
       <button onclick="location.reload();">REFRESH PAGE</button>
     </p>
   </div>
-  <div><img src="full-frame" id="photo"></div>
-  <div><img src="crop01-frame" id="photo"></div>
+  <div><img src="full-frame" id="photo" width="30%"></div>
+  <div><img src="crop01-frame" id="photo" width="30%"></div>
+
+  <div><img src="display01" id="photo" width="30%"></div>
+
 </body>
+
 <script>
   function capturePhoto() {
     var xhr = new XMLHttpRequest();
@@ -127,38 +132,38 @@ const char config_html[] PROGMEM = R"rawliteral(
 
   <form action="/get" target="hidden-form">
     Use flashlight (0=OFF; 1=ON):
-	<input type="checkbox" name="FlashLED" %FlashLED%>
+	<input type="checkbox" name="FlashLED" value="ticked" %FlashLED%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
 
   <form action="/get" target="hidden-form">
-    смещенее по оси Y при суммировании кадров и отображении на дисплее 20 250:
+	offset along the Y axis when summing frames and displaying 20 250:
   <input type="number" name="V_offset_y" value=%V_offset_y% min="20" max="250">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
-    смещенее по оси X при суммировании кадров и отображении на дисплее 0 - 50:
+	shifted along the X axis when summing frames and displaying 0 - 50:
   <input type="number" name="V_offset_x" value=%V_offset_x% min="0" max="50">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
-    Доп. уровень бинаризации для поиска цифр по y 30:
+	Add. binarization level for searching digits by Y axis (percents):
   <input type="number" name="V_level_find_digital_Y" value=%V_level_find_digital_Y% min="0" max="100">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
-    Доп. уровень бинаризации для поиска цифр по X 60 70 80:
-  <input type="number" name="V_level_find_digital_X" value=%V_level_find_digital_X% min="0" max="150">
+    Add. binarization level for searching digits on X axis (percents):
+  <input type="number" name="V_level_find_digital_X" value=%V_level_find_digital_X% min="0" max="100">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
-    Доп. уровень бинаризации при конвертации в 32 бита 15 73 25 50:
-  <input type="number" name="V_level_convert_to_32" value=%V_level_convert_to_32% min="0" max="150">
+	Add. the binarization level when converting to 32 bits:
+  <input type="number" name="V_level_convert_to_32" value=%V_level_convert_to_32% min="0" max="1000">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
@@ -171,6 +176,8 @@ boolean takeNewPhoto = false;
 
 JPEG jpeg_full_frame;	// Initial camera image
 JPEG jpeg_crop_HDR;		// Cropped HDR stage
+JPEG jpeg_display01;	// Dispaly image digits
+
 
 uint16_t Y_first, Y_last; //положение окна расположения цифр в буфере камеры
 
@@ -485,7 +492,7 @@ void printBinary(T value, String s) {
 
 
 //---------------------------------------------------- britnes_digital
-uint16_t find_middle_britnes_digital(uint16_t *fr_buf, bool show) {
+uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show) {
   //расчет средней яркости пикселей для каждой цифры после того как определили их место
   for (uint8_t dig = 0; dig < number_letter; dig++) { //поочередно обрабатываем каждое знакоместо отельно
     float britnes  = 0;
@@ -497,41 +504,38 @@ uint16_t find_middle_britnes_digital(uint16_t *fr_buf, bool show) {
       if (show) Serial.printf("x1=%d max_letter_x[dig]=%d w_l=%d\n", x1, max_letter_x[dig], w_l);
       x1 = 0;
     }
+
     for (uint16_t y = Y_first; y < Y_last; y++) { //перебор по столбцу в пределах высоты буквы
       for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //перебор по строке в пределах ширины одной цифры
-        uint32_t i = (y * F_WIDTH + x);
-        britnes += fr_buf[i]; //суммируем все значения
+        uint32_t i = (y * fr_buf->width + x);
+        britnes += fr_buf->buf[i]; //суммируем все значения
       }
     }
     Hemming[dig].britnes_digital = (int)(britnes / (w_l * (Y_last - Y_first))); //для первой цифры ширина может быть меньше
     if (show)
-      Serial.printf("dig=%d britnes=%d pixel_level=%d\n", dig, (int)(britnes / (width_letter * (Y_last - Y_first))), pixel_level);
+      Serial.printf("dig=%d, avg. britnes=%d, pixel_level=%d\n", dig, (int)(britnes / (width_letter * (Y_last - Y_first))), pixel_level);
   }
 }
 //---------------------------------------------------- britnes_digital
 
 
 //---------------------------------------------------- find_middle_level_image
-uint16_t find_middle_level_image(uint16_t *fr_buf, bool show) {
+uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
   //найти уровень яркости изображения по Отцу
 
   float av = 0;
-  uint16_t min1 = fr_buf[0];
-  uint16_t max1 = fr_buf[0];
-  uint32_t f_size = F_WIDTH * F_HEIGHT;
+  uint32_t f_size = fr_buf->width * fr_buf->height;
 
   //найти средний уровень пикселей окно табло - засвечено
   // Посчитаем минимальную и максимальную яркость всех пикселей
   for (uint32_t i = 0; i < f_size; i++) {
-    av += fr_buf[i];
-    if (fr_buf[i] < min1) min1 = fr_buf[i];
-    if (fr_buf[i] > max1) max1 = fr_buf[i];
+    av += fr_buf->buf[i];
   }
   av = av / f_size;
 
   // Гистограмма будет ограничена снизу и сверху значениями min и max,
   // поэтому нет смысла создавать гистограмму размером 256 бинов
-  int histSize = max1 - min1 + 1;
+  int histSize = fr_buf->max - fr_buf->min + 1;
 
   int *hist = (int *) heap_caps_calloc(histSize * sizeof(int), 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (hist == NULL) {
@@ -545,12 +549,12 @@ uint16_t find_middle_level_image(uint16_t *fr_buf, bool show) {
 
   // И вычислим высоту бинов
   for (int i = 0; i < f_size; i++)
-    hist[fr_buf[i] - min1]++;
+    hist[fr_buf->buf[i] - fr_buf->min]++;
 
   // Введем два вспомогательных числа:
   int m = 0; // m - сумма высот всех бинов, домноженных на положение их середины
   int n = 0; // n - сумма высот всех бинов
-  for (int t = 0; t <= max1 - min1; t++)
+  for (int t = 0; t <= fr_buf->max - fr_buf->min; t++)
   {
     m += t * hist[t];
     n += hist[t];
@@ -566,7 +570,7 @@ uint16_t find_middle_level_image(uint16_t *fr_buf, bool show) {
   // Переменная beta2 не нужна, т.к. она равна n - alpha1
 
   // t пробегается по всем возможным значениям порога
-  for (int t = 0; t < max1 - min1; t++)
+  for (int t = 0; t < fr_buf->max - fr_buf->min; t++)
   {
     alpha1 += t * hist[t];
     beta1 += hist[t];
@@ -590,12 +594,12 @@ uint16_t find_middle_level_image(uint16_t *fr_buf, bool show) {
   }
 
   // Не забудем, что порог отсчитывался от min, а не от нуля
-  threshold += min1;
+  threshold += fr_buf->min;
 
   heap_caps_free(hist); //освободить буфер
 
   if (show)
-    Serial.printf("min =%d max=%d cреднее по уровню=%.0f threshold= %d\n", min1, max1, av, threshold);
+    Serial.printf("min =%d max=%d level average=%.0f threshold= %d\n", fr_buf->min, fr_buf->max, av, threshold);
   // Все, порог посчитан, возвращаем его наверх :)
   return (uint16_t)(threshold);
 }
@@ -603,39 +607,31 @@ uint16_t find_middle_level_image(uint16_t *fr_buf, bool show) {
 
 
 //---------------------------------------------------- find_digits_y
-void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, bool show) {
+void find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень яркости изображения
   //add_mid_level повышение уровня для устранения засветки при анализе
   //show вывести информацию на экран
 
-  //поиск положения цифр по высоте Y
-#define  Y_FIRST_LOOK 10  //ограничим начало поиска 10 пикселями в строке
-#define  Y_LAST_LOOK 100 //ограничим конец поиска 100 пикселями в строке
   Y_first = 0;
   Y_last = 0;
   float av = 0;
   char buf[50]; //буфер для перевода значений строку и печати на дисплеи
 
-  /*
-    //проверка на максимум уровня не должен быть больше 255
-    if (mid_level + add_mid_level > 255)
-      add_mid_level = (255 - mid_level);
-  */
   //поиск среднего уровня
-  for (uint8_t y = Y_FIRST_LOOK; y < Y_LAST_LOOK; y++) { //только в пределах экрана по высоте 10-100 строки
-    for (uint16_t x = 0; x < F_WIDTH; x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
-      uint32_t i = (y * F_WIDTH + x);
-      if (fr_buf[i] > mid_level + add_mid_level) av++;
+  for (uint8_t y = 0; y < fr_buf->height; y++) { 	//только в пределах экрана по высоте 10-100 строки
+    for (uint16_t x = 0; x < fr_buf->width; x++) { 	//ограничим шириной экрана, а не всем изображением F_WIDTH
+      uint32_t i = (y * fr_buf->width + x);
+      if (fr_buf->buf[i] > mid_level) av++;
     }
   }
-  av = (uint16_t) (av / (Y_LAST_LOOK - Y_FIRST_LOOK));
+  av = (uint16_t) (av / (fr_buf->height));		// average pixel row summary brightness over mid_level level
 
-  for (uint8_t y = Y_FIRST_LOOK; y < Y_LAST_LOOK; y++) { //только в пределах экрана по высоте 10-100 строки
+  for (uint8_t y = 0; y < fr_buf->height; y++) { //только в пределах экрана по высоте 10-100 строки
     float av1 = 0;
-    for (uint16_t x = 0; x < F_WIDTH; x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
-      uint32_t i = (y * F_WIDTH + x);
-      if (fr_buf[i] > mid_level + add_mid_level) av1++;
+    for (uint16_t x = 0; x < fr_buf->width; x++) { //ограничим шириной экрана, а не всем изображением F_WIDTH
+      uint32_t i = (y * fr_buf->width + x);
+      if (fr_buf->buf[i] > mid_level) av1++;
     }
     if (av < av1) {
       if (show) {
@@ -646,12 +642,13 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
     }
   }
 
-
   uint8_t Y_mid = Y_first + ((Y_last - Y_first) >> 1);
   if (Y_last - Y_first != height_letter) {
-    Y_last  = Y_mid + (height_letter >> 1);
-    Y_first = Y_mid - (height_letter >> 1);
+	  Y_last  = Y_mid + (height_letter >> 1);
+	  Y_first = Y_mid - (height_letter >> 1);
   }
+
+
 
   //tft.drawLine(0, Y_first, tft.maxX() - 1, Y_first, COLOR_YELLOW);
   //tft.drawLine(0, Y_last, tft.maxX() - 1, Y_last, COLOR_YELLOW);
@@ -739,53 +736,65 @@ void find_digits_y (uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level,
 */
 
   if (show) {
-    Serial.printf(" Y_first = %d Y_last = %d\n", Y_first, Y_last);
+	  Serial.printf("Y_first=%d, Y_mid=%d, Y_last=%d\n", Y_first, Y_mid, Y_last);
   }
+
 }
 //---------------------------------------------------- find_digits_y
 
 
 //---------------------------------------------------- find_max_digital_X
-void find_max_digital_X(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, bool show) {
+void find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень изображения
   //add_mid_level повышение следующего уровня для устранения засветки при отображении
   //show вывести информацию на экран
 
   //поиск границ цифр в найденной строке по X
-  uint8_t letter[F_WIDTH]; //массив для поиска максимума по оси Х
+  uint8_t letter[fr_buf->width]; //массив для поиска максимума по оси Х
+  uint8_t letter_min = 255;
+  uint8_t letter_max = 0;
+  uint8_t letter_trs = 0;
 
-  /*
-    //проверка на максимум уровня
-    if (mid_level + add_mid_level > 255)
-      add_mid_level = (255 - mid_level);
-  */
   //строим гистограмму подсчет количества единиц по столбцу
-  for (uint16_t x = 0; x < F_WIDTH; x++) { //перебор по строке
+  for (uint16_t x = 0; x < fr_buf->width; x++) { //перебор по строке
     letter[x] = 0; //обнуляем начальное значение
-    for (uint16_t y = Y_first; y < Y_last + 1; y++) { //ищем только в пределах обнаруженных цифр
-      uint16_t i = (y * F_WIDTH + x);
-      if (fr_buf[i] > mid_level + add_mid_level) {
+    for (uint16_t y = Y_first+2; y < Y_last - 2; y++) { //ищем только в пределах обнаруженных цифр
+      uint16_t i = (y * fr_buf->width + x);
+      if (fr_buf->buf[i] > mid_level) {
         letter[x]++;
       }
     }
-    //    if(show) Serial.printf("x=%3d letter=%d\n",x,letter[x]);
+    letter_min = letter_min > letter[x] ? letter[x] : letter_min;
+    letter_max = letter_max < letter[x] ? letter[x] : letter_max;
+    //if(show) Serial.printf("x=%3d letter=%d\n",x,letter[x]);
   }
 
-  if (show) {
+  letter_trs = letter_min + (letter_max - letter_min)*treshold/100;
+  if(show) Serial.printf("letter_trs=%d\n",letter_trs);
+
+  //if (show) {
     //вывод гистограммы на дисплей с учетом смещения по оси Х
     //tft.fillRectangle (0, info_Hemming - 30, tft.maxX(), info_Hemming - 2, COLOR_BLACK); //очистить часть экрана
-    for (uint16_t x = V[V_offset_x_digital]; x < F_WIDTH; x++) { //перебор по строке  V[V_offset_x]
+    //for (uint16_t x = V[V_offset_x_digital]; x < fr_buf->width; x++) { //перебор по строке  V[V_offset_x]
       //if (letter[x] != 0)
         //tft.drawLine(x - V[V_offset_x_digital], info_Hemming - 30, x - V[V_offset_x_digital], 100 + letter[x], COLOR_CYAN); //Y_last + 10 V[V_offset_x]
-    }
-  }
+    //}
+  //}
 
   //уточним центры цифр по гистограмме
-  uint16_t x1 = 0, x2 = 0; //начало и конец цифры
+  uint16_t x0=0, x1 = 0, x2 = 0; //начало и конец цифры
   uint16_t  dig = 0; //номер найденной цифры от 0 до number_letter-1
-  for (uint16_t x = 0; x < F_WIDTH; x++) { //перебор по строке
-    if (letter[x] > 2) { //если есть пиксели найти начало больше 2 пикселей
+
+  //Find first gap (begin of counter window)
+  for (x0 = 0; x0 < fr_buf->width; x0++) { //перебор по строке
+	  if (letter[x0] < letter_trs) { //если есть пиксели найти начало больше 2 пикселей
+		  break;
+	}
+  }
+
+  for (uint16_t x = x0; x < fr_buf->width; x++) { //перебор по строке
+    if (letter[x] > letter_trs) { //если есть пиксели найти начало больше 2 пикселей
       if (x1 != 0) x2 = x; //если было найдено начало установить конец
       else x1 = x; //установить начало
     }
@@ -794,7 +803,7 @@ void find_max_digital_X(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_le
         if (show) Serial.printf("x1=%4d x2=%4d x_mid=%4d d_x=%d dig=%d\n", x1, x2, ((x2 - x1) >> 1) + x1, (x2 - x1), dig);
 
         if (dig > number_letter - 1) { //усли найдено больше чем цифр в шкале 8 number_letter - 1
-          if (show) Serial.printf("Найдено больще цифр чем в шкале по оси Х!!! %d\n", dig);
+          if (show) Serial.printf("Found more numbers than in the scale along the X axis!!! %d\n", dig);
           return;
         }
         max_letter_x[dig] = ((x2 - x1) >> 1) + x1;
@@ -837,7 +846,7 @@ void find_max_digital_X(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_le
     }
   }
   if (dig != number_letter)
-    if (show) Serial.printf("Не все цифры шкалы найдены по оси Х!!! %d\n", dig);
+    if (show) Serial.printf("Not all scale digits are found on the X axis!!! %d\n", dig);
 }
 //---------------------------------------------------- find_max_digital_X
 
@@ -1019,18 +1028,16 @@ void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, 
 
 
 //---------------------------------------------------- dispalay_ttf_B_W
-esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level) {
+esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_level, JPEG *jpeg_Out) {
   //fr_buf буфер с изображением формата uint16_t
   //X0 начальная кордината вывода по оси Х
   //Y0 начальная кордината вывода по оси Y
   //mid_level средний уровень изображения применятся индивидуальный для каждой цифры
   //add_mid_level повышение следующего уровня для устранения засветки при отображении
 
-
-
   //зарезервировтать паять для буфера дисплея
-  uint16_t W = F_WIDTH;
-  uint16_t H = F_HEIGHT;
+  uint16_t W = fr_buf->width;
+  uint16_t H = fr_buf->height;
 
   uint16_t *disp_buf = (uint16_t *)heap_caps_calloc(W * H * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (disp_buf == NULL) {
@@ -1041,37 +1048,36 @@ esp_err_t dispalay_ttf_B_W(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid
   for (int y = 0; y < H; y++) { //выводим только по высоте экрана //tft.maxX() tft.maxY()
     for (int x = 0; x < W; x++) {
       uint8_t dig = 0; //номер цифры табло
-      uint32_t i = (y * F_WIDTH + x + V[V_offset_x_digital]);
-      uint32_t j = (y * W + x);
-      uint16_t color;
-      if (s->pixformat == PIXFORMAT_GRAYSCALE) { //если GRAYSCALE преобразовать в RGB565 каждый байт буфера
-        color = (((uint16_t)(fr_buf[i]) & 0xF8) << 8) | (((uint16_t)(fr_buf[i]) & 0xFC) << 3) | ((uint16_t)(fr_buf[i]) >> 3);
-      }
-      else
-        color = fr_buf[i];
 
-      if (V[V_GBW] == 0) {
-        if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
-          dig++; //перейти к следующей цифре
-          if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
-        }
-        if (fr_buf[i] < Hemming[dig].britnes_digital + add_mid_level) //индивидуальный уровень яркости для каждой цифры
-          *(disp_buf + j)  = (uint16_t)0;//COLOR_BLACK;
-        else
-          *(disp_buf + j) = (uint16_t)0xFFFF;//COLOR_WHITE;
-      }
-      else *(disp_buf + j) = color;
+      uint32_t i = (y * W + x);// + V[V_offset_x_digital]);
+      uint32_t j = (y * W + x);
+
+	  if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
+		  dig++; //перейти к следующей цифре
+		  Serial.printf("Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
+		  if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
+	  }
+
+	  if (fr_buf->buf[i] < Hemming[dig].britnes_digital + add_mid_level) //индивидуальный уровень яркости для каждой цифры
+		  *(disp_buf + j) = (uint16_t)0x0000;//COLOR_BLACK;
+	  else
+		  *(disp_buf + j) = (uint16_t)0xFFFF;//COLOR_WHITE;
+
     }
 
   }
-/*
-  if (V[V_GBW] == 2) //если выводить полный экран
-    tft.drawBitmap(0, 0, disp_buf, W, H); //отобразить на дисплеи
-  else
-    tft.drawBitmap(0, 0, disp_buf, W, V[V_level_Y_down] + 10); //отобразить на дисплеи часть изображения с запасом на 10 пикселей
-*/
+
+  if(!fmt2jpg((uint8_t*)disp_buf, W * H * 2, W, H, PIXFORMAT_RGB565, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
+	  Serial.println("[dispalay_ttf_B_W] JPEG compression failed");
+  }
+  else{
+	  Serial.printf("[dispalay_ttf_B_W] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_Out->buf_len);
+  }
+
+
 
   heap_caps_free(disp_buf); //освободить буфер
+  disp_buf = NULL;
 
   return ESP_OK;
 }
@@ -1159,7 +1165,11 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
       esp_camera_fb_return(fb);
       fb = NULL;
     }
+
+    digitalWrite(BUILD_IN_LED, HIGH);
     fb = esp_camera_fb_get(); //получить данные от камеры
+    digitalWrite(BUILD_IN_LED, LOW);
+
     if (!fb) {
       Serial.printf("Camera capture failed to display\n");
       return ESP_FAIL;
@@ -1370,6 +1380,20 @@ void setup() {
   });
 
 
+  server.on("/display01", HTTP_GET, [](AsyncWebServerRequest * request) {
+
+      // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
+      // This is necessary when a TLS connection is open since it sucks too much memory
+	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
+	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+
+	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_display01.buf, jpeg_display01.buf_len);
+      });
+	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+	  request->send(response);
+
+  });
   server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request){
 	    request->send_P(200, "text/html", config_html, processor);
   });
@@ -1378,6 +1402,7 @@ void setup() {
   server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
     String inputMessage;
     // GET inputInt value on <ESP_IP>/get?inputInt=<inputMessage>
+
     if 		(request->hasParam("inputIntX1")) {
 		inputMessage = request->getParam("inputIntX1")->value();
 		V[V_CropX1] = inputMessage.toInt();
@@ -1402,15 +1427,14 @@ void setup() {
 
         store_check_limits(V[V_CropY2], V[V_CropY1], 240, "/V_CropY2.txt");
     }
-    else if (request->hasParam("FlashLED")) {
-        inputMessage = request->getParam("FlashLED")->value();
+    else if (request->hasArg("FlashLED")) {
+        inputMessage = request->arg("FlashLED");
 
-        Serial.printf("inputMessage = %s\r\n", inputMessage);
+        Serial.printf("FlashLED inputMessage = %s\r\n", inputMessage);
 
+        V[V_Flash] = (inputMessage == "ticked");
 
-        V[V_Flash] = (inputMessage == "checked");
-
-        store_check_limits(V[V_Flash], 0, 1, "/V_Flash.txt");
+        store_check_limits(V[V_Flash], -1, 1, "/V_Flash.txt");
     }
     else if (request->hasParam("V_offset_y")) {
         inputMessage = request->getParam("V_offset_y")->value();
@@ -1434,16 +1458,19 @@ void setup() {
         inputMessage = request->getParam("V_level_find_digital_X")->value();
         V[V_level_find_digital_X] = inputMessage.toInt();
 
-        store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
+        store_check_limits(V[V_level_find_digital_X], 0, 100, "/V_level_find_digital_X.txt");
     }
     else if (request->hasParam("V_level_convert_to_32")) {
         inputMessage = request->getParam("V_level_convert_to_32")->value();
         V[V_level_convert_to_32] = inputMessage.toInt();
 
-        store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
+        store_check_limits(V[V_level_convert_to_32],  0, 1000, "/V_level_convert_to_32.txt");
     }
     else {
     	inputMessage = "No message sent";
+
+        V[V_Flash] = false;
+        store_check_limits(V[V_Flash], -1, 1, "/V_Flash.txt");
     }
     Serial.println(inputMessage);
     request->send(200, "text/text", inputMessage);
@@ -1482,6 +1509,8 @@ void setup() {
     for(uint8_t i = 0; i < number_of_samples; i++) 
       used_samples[i][dig] = 0;
 
+  // prepare flashlight
+  pinMode(BUILD_IN_LED, OUTPUT);
 
   // Start server
   server.begin();
@@ -1653,7 +1682,9 @@ void loop() {
 	uint16_t Sum_min_Hemming[min_max_offset_y_test]; //количество вариантов поиска смещения по оси Y для автоматической подстройки
 	static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
 
+
 	if (takeNewPhoto) {
+	  uint16_t offset=0;
 
 	  area_frame.X1 = (int)V[V_CropX1];
 	  area_frame.Y1 = (int)V[V_CropY1];
@@ -1663,9 +1694,42 @@ void loop() {
 	  sum_frames(&frame_buf, true, area_frame, V[V_number_of_sum_frames]);		//Get required number of frames from camera and integrate them
 	  Serial.printf("HDR image. Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
 
-	  HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR);		//Itermediate result to jpeg buffer for browser
+	  HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR);		//Itermediate HDR cropped picture to jpeg buffer for browser
 
-	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
+	  //найти средний уровень пикселей окна табло
+	  pixel_level = find_middle_level_image(&frame_buf, false);
+
+	  //поиск положения окна цифр - при найденом уровне по оси y
+	  offset = V[V_level_find_digital_Y]*(frame_buf.max-frame_buf.min)/100;
+	  find_digits_y(&frame_buf, pixel_level + offset, false); //уровень повысим на 15 единиц, чтобы убрать засветку
+	  Serial.printf("Detected Y_first =%d, Y_last=%d\r\n", Y_first, Y_last);
+
+	  //поиск максимума - предположительно середины цифр
+	  // find maximum brightness of summary columns values
+	  find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true); //уровень повысим на 7 единиц, чтобы убрать засветку
+
+	  //найти средний уровень для каждой цифры
+	  find_middle_britnes_digital(&frame_buf, true);
+
+	  //отображение на дисплеи
+	  dispalay_ttf_B_W(&frame_buf, pixel_level, V[V_level_convert_to_32], &jpeg_display01); //повысим на 5-20 единиц, чтобы убрать засветку
+
+
+
+	  //преобразование в 32 битное числа
+	  convert_to_32(frame_buf.buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
+
+	  //сравнить с эталоном - рассчет расстояния Хемминга
+	  uint8_t count = 0;
+	  for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
+		  result[count][dig] = image_recognition(dig, V[V_show_digital]);
+		  frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
+	  }
+
+
+
+
+	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test-100; offset_y_test++) { //попробовать смещение по оси Y
 
 		offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //к уже определенному ранее значению смещения попробовать новое смещение +/-1 или 0
 
@@ -1677,35 +1741,13 @@ void loop() {
 
 		for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
 
-			if (V[V_RESTART]) ESP.restart(); //если нажата клавиша перезагрузки в приложении - перегрузить. Пароль 1234
-
 			if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-			//найти средний уровень пикселей окна табло
-			pixel_level = find_middle_level_image(frame_buf.buf, false);
 
-			//отображение на дисплеи
-			dispalay_ttf_B_W(frame_buf.buf, pixel_level, V[V_level_dispalay_ttf_B_W]); //повысим на 5-20 единиц, чтобы убрать засветку
 
-			//  free_heap  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-			//поиск положения окна цифр - при найденом уровне по оси y
-			find_digits_y(frame_buf.buf, pixel_level, V[V_level_find_digital_Y], false); //уровень повысим на 15 единиц, чтобы убрать засветку
-			//  Serial.printf("heap = %d\n",free_heap-heap_caps_get_free_size(MALLOC_CAP_8BIT));
 
-			//поиск максимума - предположительно середины цифр
-			find_max_digital_X(frame_buf.buf, pixel_level, V[V_level_find_digital_X], false); //уровень повысим на 7 единиц, чтобы убрать засветку
 
-			//найти средний уровень для каждой цифры
-			find_middle_britnes_digital(frame_buf.buf, false);
 
-			//преобразование в 32 битное числа
-			convert_to_32(frame_buf.buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
-
-			//сравнить с эталоном - рассчет расстояния Хемминга
-			for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
-			  result[count][dig] = image_recognition(dig, V[V_show_digital]);
-			  frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
-			}
 
 		} //повторим результат и найдем опознаные числа
 
@@ -1724,12 +1766,12 @@ void loop() {
 
 		  V[V_offset_y_current] = (offset_y_test - 1);
 
-		  Serial.printf("Суммарное расстояние Хемминга=%d при cмещении=%d итоговое смещение=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
+		  Serial.printf("Summary Hemming destination=%d at offset=%d result offset=%.0f\n\n", Sum_min_Hemming[offset_y_test], (offset_y_test - 1), V[V_offset_y_test]);
 		}
 
-        store_check_limits(V[V_level_find_digital_Y], 0, 100, "/V_level_find_digital_Y.txt");
-        store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
-        store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
+        //store_check_limits(V[V_level_find_digital_Y], 0, 100, "/V_level_find_digital_Y.txt");
+        //store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
+        //store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
 
 	  } //попробовать смещение по оси Y
 
@@ -1749,13 +1791,13 @@ void loop() {
 		V[V_Sum_min_Hemming] =  Sum_min; //передадим текущее значение в приложение
 		if (V[V_Sum_min_Hemming] > 250) { //суммарное значенее расстояния Хемминга не должно быть более 250
 		  V[V_Sum_min_Hemming_error]++;
-		  Serial.printf("Очевидно сбой суммарное расстояние Хемминга=%.0f всего ошибок=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
+		  Serial.printf("Malfunction, summary Hemming destination=%.0f errors total=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
 		}
 		else {
 		  V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //запомним лучшее значение
 		}
 
-		Serial.printf("Результат суммарное расстояние Хемминга=%d при смещении=%d итоговое смещение=%.0f всего сбоев %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
+		Serial.printf("Result summary Hemming destination=%d at offset=%d result offset=%.0f errors: %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
 	  }
 
 
@@ -1764,7 +1806,7 @@ void loop() {
 
 	if (WiFi.status() != WL_CONNECTED) {
 		WiFi_Lost++;
-		Serial.printf("Сеть потеряна %d\n", WiFi_Lost);
+		Serial.printf("No wifi connection %d\n", WiFi_Lost);
 	}
 	else WiFi_Lost = 0;
 	if (WiFi_Lost == 6) WiFi_Connect(); //если нет связи около 4 минут пересоединиться
