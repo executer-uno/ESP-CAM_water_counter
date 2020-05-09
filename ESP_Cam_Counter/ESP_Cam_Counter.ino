@@ -50,14 +50,11 @@ struct tm timeinfo; //структура времени записи кольц�
 #define Hemming_level 80 //Значенее расстояния Хемминга которое считается максимально допустимым при распознавании  50
 
 #define width_letter 14 //ширина цифр в пикселях  //TODO adjustable from interface
-#define number_letter 7 //число цифр в шкале
+#define number_letter 8 //число цифр в шкале
 #define height_letter 26 //высота по y - совпадает с высотой эталона
 
 #define average_count 1 //количество усреднений результатов распознавания
 #define average_count_level average_count-3 //число усреднений, которое принимается за положительное при распознавании
-
-#define F_HEIGHT 240 //высота обработки изображения совпадает с высотой дисплея 2.0
-#define F_WIDTH  320 //ширина обработки изображения совпадает с шириной изображения камеры
 
 #include "sample.h" //образцы эталонов
 
@@ -83,10 +80,9 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     </p>
   </div>
-  <div><img src="full-frame" id="photo" width="30%"></div>
+  <div><img src="full-frame"   id="photo" width="30%"></div>
   <div><img src="crop01-frame" id="photo" width="30%"></div>
-
-  <div><img src="display01" id="photo" width="30%"></div>
+  <div><img src="display01"    id="photo" width="30%"></div>
 
 </body>
 
@@ -193,13 +189,13 @@ JPEG jpeg_full_frame;	// Initial camera image
 JPEG jpeg_crop_HDR;		// Cropped HDR stage
 JPEG jpeg_display01;	// Dispaly image digits
 
-uint16_t Y_first, Y_last; //положение окна расположения цифр в буфере камеры
+frame read_window;			// coordinates of counter values readout window
 
 uint16_t pixel_level = 0; //пороговый уровень пикселей на изображении определеный методом Отцу
 
 uint16_t max_letter_x[number_letter]; //массив середины цифры по оси Х
 
-uint32_t l_32[number_letter][F_HEIGHT]; //массив после перевода распознаваемых цифр в 32 битное число. Запас по высоте равен высоте экрана
+uint32_t l_32[number_letter][300]; //массив после перевода распознаваемых цифр в 32 битное число. Запас по высоте равен высоте экрана// TODO dinamic memory allocation?
 uint8_t result[average_count][number_letter]; //накопление результатов распознавания цифр со шкалы
 
 HDR frame_buf;
@@ -509,7 +505,7 @@ void printBinary(T value, String s) {
 
 
 //---------------------------------------------------- britnes_digital
-uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show) {
+uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show, frame *read_window) {
   //расчет средней яркости пикселей для каждой цифры после того как определили их место
   for (uint8_t dig = 0; dig < number_letter; dig++) { //поочередно обрабатываем каждое знакоместо отельно
     float britnes  = 0;
@@ -522,15 +518,15 @@ uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show) {
       x1 = 0;
     }
 
-    for (uint16_t y = Y_first; y < Y_last; y++) { //перебор по столбцу в пределах высоты буквы
+    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //перебор по столбцу в пределах высоты буквы
       for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //перебор по строке в пределах ширины одной цифры
         uint32_t i = (y * fr_buf->width + x);
         britnes += fr_buf->buf[i]; //суммируем все значения
       }
     }
-    Hemming[dig].britnes_digital = (int)(britnes / (w_l * (Y_last - Y_first))); //для первой цифры ширина может быть меньше
+    Hemming[dig].britnes_digital = (int)(britnes / (w_l * (read_window->Y2 - read_window->Y1))); //для первой цифры ширина может быть меньше
     if (show)
-      Serial.printf("dig=%d, avg. britnes=%d, pixel_level=%d\n", dig, (int)(britnes / (width_letter * (Y_last - Y_first))), pixel_level);
+      Serial.printf("dig=%d, avg. britnes=%d, pixel_level=%d\n", dig, (int)(britnes / (width_letter * (read_window->Y2 - read_window->Y1))), pixel_level);
   }
 }
 //---------------------------------------------------- britnes_digital
@@ -624,14 +620,15 @@ uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
 
 
 //---------------------------------------------------- find_digits_y
-esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
+esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read_window) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень яркости изображения
   //add_mid_level повышение уровня для устранения засветки при анализе
   //show вывести информацию на экран
 
-  Y_first = 0;
-  Y_last = 0;
+  read_window->Y2 = 0;
+  read_window->Y1 = 0;
+
   float av = 0;
   char buf[50]; //буфер для перевода значений строку и печати на дисплеи
 
@@ -654,15 +651,15 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
       if (show) {
         Serial.printf("av=%.0f av1=%.0f Y = %d\n", av, av1, y);
       }
-      if (Y_first == 0) Y_first = y;
-      Y_last = y;
+      if (read_window->Y1 == 0) read_window->Y1 = y;
+      read_window->Y2 = y;
     }
   }
 
-  uint8_t Y_mid = Y_first + ((Y_last - Y_first) >> 1);
-  if (Y_last - Y_first != height_letter) {
-	  Y_last  = Y_mid + (height_letter >> 1);
-	  Y_first = Y_mid - (height_letter >> 1);
+  uint8_t Y_mid = read_window->Y1 + ((read_window->Y2 - read_window->Y1) >> 1);
+  if (read_window->Y2 - read_window->Y1 != height_letter) {
+	  read_window->Y2 = Y_mid + (height_letter >> 1);
+	  read_window->Y1 = Y_mid - (height_letter >> 1);
   }
 
 
@@ -703,7 +700,7 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
     //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_YELLOW);
   }
 
-  uint16_t x_width_min = F_WIDTH; //ширина экрана
+  uint16_t x_width_min = fr_buf->width; //ширина экрана
   uint16_t x_width_max = 0; //минимальное значенее
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
@@ -753,7 +750,7 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
 */
 
   if (show) {
-	  Serial.printf("Y_first=%d, Y_mid=%d, Y_last=%d\n", Y_first, Y_mid, Y_last);
+	  Serial.printf("Y_first=%d, Y_mid=%d, Y_last=%d\n", read_window->Y1, Y_mid, read_window->Y2);
   }
   return ESP_OK;
 
@@ -762,8 +759,68 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
 //---------------------------------------------------- find_digits_y
 
 
+//---------------------------------------------------- find_digits_x
+esp_err_t find_digits_x (HDR *fr_buf, uint16_t mid_level, bool show, frame *read_window) {
+  //fr_buf буфер с изображением формата uint16_t
+  //mid_level средний уровень яркости изображения
+  //add_mid_level повышение уровня для устранения засветки при анализе
+  //show вывести информацию на экран
+
+  read_window->X2 = 0;
+  read_window->X1 = 0;
+
+  float av = 0;
+
+  //поиск среднего уровня
+  for (uint16_t x = 0; x < fr_buf->width; x++) { 	//ограничим шириной экрана, а не всем изображением F_WIDTH
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
+		  uint32_t i = (y * fr_buf->width + x);
+		  if (fr_buf->buf[i] > mid_level) av++;
+	  }
+  }
+  av = (uint16_t) (av / (fr_buf->width));		// average pixel column summary brightness over mid_level level
+
+  // find left edge
+  uint16_t x = 0;
+  float av1 = 0.0;
+  do{
+	  av1 = 0.0;
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
+		  uint32_t i = (y * fr_buf->width + x);
+		  if (fr_buf->buf[i] > mid_level) av1++;
+	  }
+	  if (show) Serial.printf("[find_digits_x] Left av=%.0f av1=%.0f X = %d\n", av, av1, x);
+	  x++;
+  } while (av1 > av);
+  read_window->X1 = ++x;
+
+  // find right edge
+  x = fr_buf->width;
+  do{
+	  av1 = 0.0;
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
+		  uint32_t i = (y * fr_buf->width + x);
+		  if (fr_buf->buf[i] > mid_level) av1++;
+	  }
+	  if (show) Serial.printf("[find_digits_x] Right av=%.0f av1=%.0f X = %d\n", av, av1, x);
+	  x--;
+  } while (av1 > av);
+  read_window->X2 = --x;
+
+
+  if (show) {
+	  Serial.printf("X_first=%d, X_last=%d\n", read_window->X1, read_window->X2);
+  }
+  return ESP_OK;
+
+
+}
+//---------------------------------------------------- find_digits_x
+
+
+
 //---------------------------------------------------- find_max_digital_X
-esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show) {
+esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show, frame *read_window) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень изображения
   //add_mid_level повышение следующего уровня для устранения засветки при отображении
@@ -778,7 +835,7 @@ esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold, 
   //строим гистограмму подсчет количества единиц по столбцу
   for (uint16_t x = 0; x < fr_buf->width; x++) { //перебор по строке
     letter[x] = 0; //обнуляем начальное значение
-    for (uint16_t y = Y_first+2; y < Y_last - 2; y++) { //ищем только в пределах обнаруженных цифр
+    for (uint16_t y = read_window->Y1; y < read_window->Y2 - 2; y++) { //ищем только в пределах обнаруженных цифр
       uint16_t i = (y * fr_buf->width + x);
       if (fr_buf->buf[i] > mid_level) {
         letter[x]++;
@@ -823,7 +880,7 @@ esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold, 
 
         if (dig > number_letter - 1) { //усли найдено больше чем цифр в шкале 8 number_letter - 1
           if (show) Serial.printf("Found more numbers than in the scale along the X axis!!! %d\n", dig);
-          return ESP_FAIL;
+          return ESP_OK;//ESP_FAIL;
         }
         max_letter_x[dig] = ((x2 - x1) >> 1) + x1;
 
@@ -899,7 +956,7 @@ uint8_t compare(uint8_t y, uint8_t samp_dig, uint8_t dig, int X_shift, int Y_shi
 
   uint32_t samp1;
 
-  if ((y + Y_shift < F_HEIGHT) || (y + Y_shift > 0)) {
+  if ((y + Y_shift < 240) || (y + Y_shift > 0)) {
     if (X_shift < 0)
       samp1 = l_32[dig][y + Y_shift] >> abs(X_shift); //образец который сравниваем может быть отрицательное значенее
     else
@@ -915,7 +972,7 @@ uint8_t compare(uint8_t y, uint8_t samp_dig, uint8_t dig, int X_shift, int Y_shi
 
 
 //---------------------------------------------------- image_recognition
-uint8_t image_recognition(uint8_t dig, uint8_t dig_show) {
+uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
   //dig - какую цифру обрабатываем
   //dig_show какую цифру отображаем если > 8 = не выводим
 
@@ -926,7 +983,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show) {
   //вывод цифры со шкалы в двоичном виде
   if (dig == dig_show) {
     Serial.printf("------------------------------\n");
-    for (uint8_t y = 0; y < Y_last - Y_first; y++) { //перебор по Y
+    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //перебор по Y
       printBinary(l_32[dig][y], "\n");
     }
     Serial.printf("------------------------------\n");
@@ -935,7 +992,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show) {
   //вывод цифры со шкалы в HEX формате
   if (V[V_SH_HEX] == 1) {
     Serial.printf("{//%d\n", dig);
-    for (uint8_t y = 0; y < Y_last - Y_first; y++) { //перебор по Y
+    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //перебор по Y
       Serial.printf("0x%08lx,\t//", l_32[dig][y]);
       printBinary(l_32[dig][y], "\n");
     }
@@ -1011,7 +1068,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show) {
 
 
 //---------------------------------------------------- convert_to_32
-void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, bool show) {
+void convert_to_32(HDR *fr_buf, uint16_t mid_level, uint8_t add_mid_level, bool show, frame *read_window) {
 
   /*
     //проверка на максимум уровня
@@ -1020,18 +1077,18 @@ void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, 
   */
 
   for (uint8_t dig = 0; dig < number_letter; dig++) { //всего 8 цифр в шкале последовательно обрабатываем каждую
-    for (uint16_t y = Y_first; y < Y_last; y++) { //перебор по столбцу
-      l_32[dig][y - Y_first] = 0;
+    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //перебор по столбцу
+      l_32[dig][y - read_window->Y1] = 0;
       int x1 = max_letter_x[dig] - width_letter / 2; //для первой цифры размер может быть меньше установленной ширины
       if (x1 < 0) x1 = 0;
       for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //перебор по строке в пределах одной цифры
-        l_32[dig][y - Y_first] = l_32[dig][y - Y_first] << 1; //сдвиг на 1 позицию
-        uint32_t i = (y * F_WIDTH + x);
+        l_32[dig][y - read_window->Y1] = l_32[dig][y - read_window->Y1] << 1; //сдвиг на 1 позицию
+        uint32_t i = (y * fr_buf->width + x);
 
-        if (fr_buf[i] > Hemming[dig].britnes_digital + add_mid_level) { //индивидуальный уровень яркости для каждой цифры
+        if (fr_buf->buf[i] > Hemming[dig].britnes_digital + add_mid_level) { //индивидуальный уровень яркости для каждой цифры
           //        if (fr_buf[i] > mid_level + add_mid_level) { //средний уровень
           if (show || V[V_SH_0_1] != 0) Serial.printf("1");
-          l_32[dig][y - Y_first]++;
+          l_32[dig][y - read_window->Y1]++;
         }
         else {
           if (show) Serial.printf(" ");
@@ -1039,10 +1096,10 @@ void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, 
           if (V[V_SH_0_1] == 2) Serial.printf("0");
         }
       }
-      if (show) Serial.printf("|0x%08lx\n", l_32[dig][y - Y_first]);
+      if (show) Serial.printf("|0x%08lx\n", l_32[dig][y - read_window->Y1]);
       if (V[V_SH_0_1] != 0) Serial.printf("\n");
     }
-    if (show) Serial.printf("Letter box middel = %d d_x = %d d_y =%d mid_line_y=%d\n", max_letter_x[dig], width_letter, Y_last - Y_first, Y_first + (Y_last - Y_first) / 2);
+    if (show) Serial.printf("Letter box middel = %d d_x = %d d_y =%d mid_line_y=%d\n", max_letter_x[dig], width_letter, read_window->Y2 - read_window->Y1, read_window->Y1 + (read_window->Y2 - read_window->Y1) / 2);
     if (V[V_SH_0_1] != 0) Serial.printf("\n");
   }
 }
@@ -1050,7 +1107,7 @@ void convert_to_32(uint16_t *fr_buf, uint16_t mid_level, uint8_t add_mid_level, 
 
 
 //---------------------------------------------------- dispalay_ttf_B_W
-esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_level, JPEG *jpeg_Out) {
+esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t add_mid_level, JPEG *jpeg_Out) {
   //fr_buf буфер с изображением формата uint16_t
   //X0 начальная кордината вывода по оси Х
   //Y0 начальная кордината вывода по оси Y
@@ -1061,37 +1118,39 @@ esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_leve
   uint16_t W = fr_buf->width;
   uint16_t H = fr_buf->height;
 
-  uint16_t *disp_buf = (uint16_t *)heap_caps_calloc(W * H * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
+  uint32_t f8  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  uint8_t *disp_buf = (uint8_t *)heap_caps_calloc(1, W * H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (disp_buf == NULL) {
-    Serial.printf("malloc failed f_b\n");
-    return ESP_FAIL;
+	    Serial.printf("[dispalay_ttf_B_W] malloc failed f_b\n");
+	    return ESP_FAIL;
+  }
+  else {
+    Serial.printf("[dispalay_ttf_B_W] malloc succeeded for disp_buf. Taken 8BIT chunks = %d\n", f8 - heap_caps_get_free_size(MALLOC_CAP_8BIT));
   }
 
-  for (int y = 0; y < H; y++) { //выводим только по высоте экрана //tft.maxX() tft.maxY()
-    for (int x = 0; x < W; x++) {
-      uint8_t dig = 0; //номер цифры табло
 
-      uint32_t i = (y * W + x);// + V[V_offset_x_digital]);
-      uint32_t j = (y * W + x);
+	  for (int y = 0; y < H; y++) { //выводим только по высоте экрана //tft.maxX() tft.maxY()
+		for (int x = 0; x < W; x++) {
+		  uint8_t dig = 0; //номер цифры табло
 
-	  if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
-		  dig++; //перейти к следующей цифре
+		  uint32_t i = (y * W + x);
 
-		  //Serial.printf("[dispalay_ttf_B_W] Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
+		  if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
+			  dig++; //перейти к следующей цифре
+			  //Serial.printf("[dispalay_ttf_B_W] Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
+			  if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
+		  }
 
-		  if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
+		  if (fr_buf->buf[i] >= Hemming[dig].britnes_digital + add_mid_level){ //индивидуальный уровень яркости для каждой цифры
+			  disp_buf[i] = (uint16_t)0xFFFF;//COLOR_WHITE;
+		  }
+
+		}
+
 	  }
 
-	  if (fr_buf->buf[i] < Hemming[dig].britnes_digital + add_mid_level) //индивидуальный уровень яркости для каждой цифры
-		  *(disp_buf + j) = (uint16_t)0x0000;//COLOR_BLACK;
-	  else
-		  *(disp_buf + j) = (uint16_t)0xFFFF;//COLOR_WHITE;
-
-    }
-
-  }
-
-  if(!fmt2jpg((uint8_t*)disp_buf, W * H * 2, W, H, PIXFORMAT_RGB565, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
+  if(!fmt2jpg((uint8_t*)disp_buf, W * H, W, H, PIXFORMAT_GRAYSCALE, 50, &jpeg_Out->buf, &jpeg_Out->buf_len)){
 	  Serial.println("[dispalay_ttf_B_W] JPEG compression failed");
   }
   else{
@@ -1443,14 +1502,19 @@ void setup() {
       // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
       // This is necessary when a TLS connection is open since it sucks too much memory
 	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
-	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
 
-	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
-          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_display01.buf, jpeg_display01.buf_len);
-      });
-	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
-	  request->send(response);
+	  if(jpeg_display01.buf == NULL){
+		  request->send(200, "text/text", "No picture");
+	  }
+	  else{
+		  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
 
+		  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+			  return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_display01.buf, jpeg_display01.buf_len);
+		  });
+		  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+		  request->send(response);
+	  }
   });
   server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request){
 	    request->send_P(200, "text/html", config_html, processor);
@@ -1797,43 +1861,42 @@ void loop() {
 	  if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
 		  return;
 	  }
-return;
+
 	  //найти средний уровень пикселей окна табло
 	  pixel_level = find_middle_level_image(&frame_buf, false);
 
-	  //поиск положения окна цифр - при найденом уровне по оси y
+	  //поиск положения окна цифр (top and bottom edges coordinates) - при найденом уровне по оси y
 	  offset = V[V_level_find_digital_Y]*(frame_buf.max-frame_buf.min)/100;
-	  if(find_digits_y(&frame_buf, pixel_level + offset, false)){ //уровень повысим на 15 единиц, чтобы убрать засветку
+	  if(find_digits_y(&frame_buf, pixel_level + offset, false, &read_window)){ //уровень повысим на 15 единиц, чтобы убрать засветку
 		  return;
 	  }
-	  Serial.printf("Detected Y_first =%d, Y_last=%d\r\n", Y_first, Y_last);
+	  //поиск положения окна цифр (left and right edges) - between found up and bottom edges
+	  if(find_digits_x(&frame_buf, pixel_level + offset, true, &read_window)){
+		  return;
+	  }
+	  Serial.printf("Detected read_window (%d;%d)-(%d;%d)\r\n", read_window.X1, read_window.Y1,read_window.X2, read_window.Y2);
 
 	  //поиск максимума - предположительно середины цифр
 	  // find maximum brightness of summary columns values
-	  if(find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true)){ //уровень повысим на 7 единиц, чтобы убрать засветку
+	  if(find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true, &read_window)){ //уровень повысим на 7 единиц, чтобы убрать засветку
 		  return;
 	  }
 
 	  //найти средний уровень для каждой цифры
-	  find_middle_britnes_digital(&frame_buf, true);
+	  find_middle_britnes_digital(&frame_buf, true, &read_window);
 
 	  //отображение на дисплеи
-	  dispalay_ttf_B_W(&frame_buf, pixel_level, V[V_level_convert_to_32], &jpeg_display01); //повысим на 5-20 единиц, чтобы убрать засветку
-
-
+	  dispalay_ttf_B_W(&frame_buf, V[V_level_convert_to_32], &jpeg_display01); //повысим на 5-20 единиц, чтобы убрать засветку
 
 	  //преобразование в 32 битное числа
-	  convert_to_32(frame_buf.buf, pixel_level, V[V_level_convert_to_32], false); //уровень повысим на 20 единиц, чтобы убрать засветку
+	  convert_to_32(&frame_buf, pixel_level, V[V_level_convert_to_32], false, &read_window); //уровень повысим на 20 единиц, чтобы убрать засветку
 
 	  //сравнить с эталоном - рассчет расстояния Хемминга
 	  uint8_t count = 0;
 	  for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
-		  result[count][dig] = image_recognition(dig, V[V_show_digital]);
+		  result[count][dig] = image_recognition(dig, V[V_show_digital], &read_window);
 		  frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
 	  }
-
-
-
 
 	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test-100; offset_y_test++) { //попробовать смещение по оси Y
 
