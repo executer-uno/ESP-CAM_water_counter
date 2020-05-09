@@ -79,6 +79,8 @@ const char index_html[] PROGMEM = R"rawliteral(
     <p>
       <button onclick="capturePhoto()">CAPTURE PHOTO</button>
       <button onclick="location.reload();">REFRESH PAGE</button>
+      <button onclick="CAMreboot();">REBOOT</button>
+
     </p>
   </div>
   <div><img src="full-frame" id="photo" width="30%"></div>
@@ -92,6 +94,11 @@ const char index_html[] PROGMEM = R"rawliteral(
   function capturePhoto() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', "/capture", true);
+    xhr.send();
+  }
+  function CAMreboot() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', "/reboot", true);
     xhr.send();
   }
   function isOdd(n) { return Math.abs(n % 2) == 1; }
@@ -139,6 +146,11 @@ const char config_html[] PROGMEM = R"rawliteral(
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
+  <form action="/get" target="hidden-form">
+    Number of frames to integrate:
+	<input type="number" name="V_number_of_sum_frames" value=%V_number_of_sum_frames% min="0" max="20">
+    <input type="submit" value="Submit" onclick="submitMessage()">
+  </form><br>
 
   <form action="/get" target="hidden-form">
 	offset along the Y axis when summing frames and displaying 20 250:
@@ -355,6 +367,9 @@ String processor(const String& var){
   }
   else if(var == "V_level_convert_to_32"){
     return String(V[V_level_convert_to_32]);
+  }
+  else if(var == "V_number_of_sum_frames"){
+    return String(V[V_number_of_sum_frames]);
   }
   return String();
 }
@@ -1220,6 +1235,8 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 
 		uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
 
+		fr_buf->min = 0xFFFF; // reset min before new frame capture
+
 		//proceed only cropped area of the frame
 		for (uint16_t y = area_frame->Y1; y < area_frame->Y2; y++)
 		for (uint16_t x = area_frame->X1; x < area_frame->X2; x++) {
@@ -1416,6 +1433,10 @@ void setup() {
 
   });
 
+  server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest * request) {
+     request->send_P(200, "text/plain", "Rebooting");
+     ESP.restart();
+  });
 
   server.on("/display01", HTTP_GET, [](AsyncWebServerRequest * request) {
 
@@ -1514,6 +1535,12 @@ void setup() {
         V[V_level_convert_to_32] = inputMessage.toInt();
 
         store_check_limits(V[V_level_convert_to_32],  0, 1000, "/V_level_convert_to_32.txt");
+    }
+    else if (request->hasParam("V_number_of_sum_frames")) {
+        inputMessage = request->getParam("V_number_of_sum_frames")->value();
+        V[V_number_of_sum_frames] = inputMessage.toInt();
+
+        store_check_limits(V[V_number_of_sum_frames],  1, 20, "/V_number_of_sum_frames.txt");
     }
     else {
     	inputMessage = "No message sent";
@@ -1945,8 +1972,9 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
   // record the current time so we can measure how long it takes to draw an image
   uint32_t drawTime = millis();
 
-  // read each MCU block until there are no more
+  DestBuff->min = 0xFFFF; // reset min before new frame capture
 
+  // read each MCU block until there are no more
   //while( JpegDec.readSwappedBytes()){ // Swap byte order so the SPI buffer can be used
   while ( JpegDec.read()) { // Normal byte order read
 
@@ -1963,13 +1991,13 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
     if (mcu_y + mcu_h <= max_y) win_h = mcu_h;
     else win_h = min_h;
 
-    // check if current MCU are completly in area_frame bounds (partly MCUs will be cropped)
+    // check if current MCU are even partly in area_frame bounds. MCU's pixels out of area_frame will not be proceed
     bool inFrame=true;
 
-    inFrame &= ( mcu_x + win_w) 	<= area_frame->X1 + DestBuff->width;	// Right bound
-    inFrame &= ( mcu_y + win_h) 	<= area_frame->Y1 + DestBuff->height;	// Bottom bound
-    inFrame &= mcu_x				>= area_frame->X1;		// Left bound check
-    inFrame &= mcu_y				>= area_frame->Y1;		// Top bound
+    inFrame &= ( mcu_x + win_w) 	>= area_frame->X1;						// MCU Right bound
+    inFrame &= ( mcu_y + win_h) 	>= area_frame->Y1;						// MCU Bottom bound
+    inFrame &= mcu_x				<= area_frame->X1 + DestBuff->width;	// MCU Left bound check
+    inFrame &= mcu_y				<= area_frame->Y1 + DestBuff->height;	// MCU Top bound
 
     // draw image MCU block only if it will fit on the screen
     if (inFrame){
@@ -1977,9 +2005,17 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
     	//Serial.printf("[inFrame] MCU coodinates are %i:%i/r/n", mcu_x, mcu_y);
 
 
-		for (uint16_t y = mcu_y; y < mcu_y + win_h - 1; y++)
-		for (uint16_t x = mcu_x; x < mcu_x + win_w - 1; x++) {
+		for (uint16_t y = mcu_y; y < mcu_y + win_h; y++)
+		for (uint16_t x = mcu_x; x < mcu_x + win_w; x++) {
 			// it is X and Y coordinates of JPEG image
+
+			inFrame=true;
+			inFrame &= x >= area_frame->X1;						// DestBuff Right bound
+			inFrame &= y >= area_frame->Y1;						// DestBuff Bottom bound
+			inFrame &= x <  area_frame->X1 + DestBuff->width;	// DestBuff Left bound check
+			inFrame &= y <  area_frame->Y1 + DestBuff->height;	// DestBuff Top bound
+			// draw only DestBuff area pixels
+			if (inFrame){
 
 			  uint32_t i = ((y-mcu_y) * mcu_w + (x-mcu_x)); 							// pImg adress from coordinates
 			  uint32_t j = ((y-area_frame->Y1) * DestBuff->width + (x-area_frame->X1)); // DestBuff adress from coordinates
@@ -1987,20 +2023,21 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
 			  //берем 16 битный RGB565 буфер и преобразуем в 16 битный GRAYSCALE
 			  //https://stackoverflow.com/questions/58449462/rgb565-to-grayscale
 			  int16_t pixel = pImg[i];
-			  int16_t red = ((pixel & 0xF800)>>11);
+			  int16_t red   = ((pixel & 0xF800)>>11);
 			  int16_t green = ((pixel & 0x07E0)>>5);
-			  int16_t blue = (pixel & 0x001F);
+			  int16_t blue  = ( pixel & 0x001F);
 			  int16_t grayscale = (0.2126 * red) + (0.7152 * green / 2.0) + (0.0722 * blue);
 
 			  DestBuff->buf[j] += grayscale; // accumulate in HDR
 
 			  DestBuff->max = DestBuff->max > DestBuff->buf[j] ? DestBuff->max : DestBuff->buf[j];
 			  DestBuff->min = DestBuff->min < DestBuff->buf[j] ? DestBuff->min : DestBuff->buf[j];
+
+			}
 		}
 
     }
-
-    else if ( ( mcu_y + win_h) >= (area_frame->Y1 + DestBuff->height)) JpegDec.abort();
+    else if ( ( mcu_y ) > (area_frame->Y1 + DestBuff->height)) JpegDec.abort();
 
   }
   Serial.printf("[jpegRender] Max bright pixel =%d, Min bright pixel=%d\r\n", DestBuff->max, DestBuff->min);
@@ -2009,7 +2046,6 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
   drawTime = millis() - drawTime; // Calculate the time it took
 
   // print the results to the serial port
-  Serial.print  ("Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
-  Serial.println("=====================================");
+  Serial.print  ("[jpegRender] Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
 
 }

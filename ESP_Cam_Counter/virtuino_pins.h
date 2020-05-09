@@ -155,7 +155,7 @@ bool store_check_limits(float &V_test, uint16_t V_min, uint16_t V_max, const cha
 
     String inputMessage;
 
-  if ((uint16_t)(V_test) >= V_max || (uint16_t)(V_test) < V_min || isnan(V_test))
+  if ((uint16_t)(V_test) > V_max || (uint16_t)(V_test) < V_min || isnan(V_test))
   { //если значение вне пределов или неопределено - nan
     //    Serial.print("Установка первоначального значения: V_set " + (String)V_set
     //                 + "\tV_test " + (String)V_test + "\tV_MI " + (String)V_MI + "\tV_V_addr " + (String)V_addr);
@@ -192,6 +192,9 @@ void restore_variables(bool read_from_memory)
 
 		V[V_Flash] 					= readFile(SPIFFS, "/V_Flash.txt").toFloat();
 
+
+		V[V_number_of_sum_frames] 	= readFile(SPIFFS, "/V_number_of_sum_frames.txt").toFloat(); //old_number_of_sum_frames; //число кадров суммирования
+
 	}
 
 }
@@ -203,7 +206,6 @@ void init_V() {
   //инициализация переменных
   restore_variables(true);
 
-  V[V_number_of_sum_frames] = old_number_of_sum_frames; //число кадров суммирования
 
   V[V_show_digital] = 8;  		//V10 - номер цифры какую выводим на экран для сравнения 8 - нет вывода
   V[V_offset_x_digital] = 0; 	//V11 - смещенее по оси X при отображении на дисплеи для анализа 50 100 150
