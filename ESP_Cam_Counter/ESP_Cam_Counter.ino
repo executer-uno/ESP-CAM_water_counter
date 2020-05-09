@@ -29,6 +29,9 @@
 #include "time.h"
 #include "Credentials.h"
 
+// JPEG decoder library
+#include <JPEGDecoder.h>
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 7200;
 const int   daylightOffset_sec = 3600; //летнее время 3600;
@@ -108,25 +111,25 @@ const char config_html[] PROGMEM = R"rawliteral(
 
   <form action="/get" target="hidden-form">
     Crop area coodinates X1:
-	<input type="number" name="inputIntX1" value=%inputIntX1% min="0" max="320">
+	<input type="number" name="inputIntX1" value=%inputIntX1% min="0" max="1600">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
     Crop area coodinates Y1:
-	<input type="number" name="inputIntY1" value=%inputIntY1% min="0" max="240">
+	<input type="number" name="inputIntY1" value=%inputIntY1% min="0" max="1200">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
     Crop area coodinates X2:
-	<input type="number" name="inputIntX2" value=%inputIntX2% min="0" max="320">
+	<input type="number" name="inputIntX2" value=%inputIntX2% min="0" max="1600">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
   <form action="/get" target="hidden-form">
     Crop area coodinates Y2:
-	<input type="number" name="inputIntY2" value=%inputIntY2% min="0" max="240">
+	<input type="number" name="inputIntY2" value=%inputIntY2% min="0" max="1200">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
 
@@ -177,7 +180,6 @@ boolean takeNewPhoto = false;
 JPEG jpeg_full_frame;	// Initial camera image
 JPEG jpeg_crop_HDR;		// Cropped HDR stage
 JPEG jpeg_display01;	// Dispaly image digits
-
 
 uint16_t Y_first, Y_last; //положение окна расположения цифр в буфере камеры
 
@@ -250,7 +252,7 @@ uint8_t frequency[number_of_samples][number_letter]; //подсчет макси
 uint32_t used_samples[number_of_samples][number_letter]; //частота использования эталона
 
 camera_fb_t * fb; //для работы камеры указатель на структуру буфер
-sensor_t * s; //для работы камеры указаитель на структуру сенсора
+//sensor_t * s; //для работы камеры указаитель на структуру сенсора
 
 // Replace with your network credentials
 const char* ssid 		= MY_WIFI;
@@ -337,7 +339,7 @@ String processor(const String& var){
     return String(V[V_CropY2]);
   }
   else if(var == "FlashLED"){
-    return String(V[V_Flash]?"checked":"");
+    return String(V[V_Flash]!=0.0?"checked":"");
   }
   else if(var == "V_offset_y"){
     return String(V[V_offset_y]);
@@ -607,7 +609,7 @@ uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
 
 
 //---------------------------------------------------- find_digits_y
-void find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
+esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень яркости изображения
   //add_mid_level повышение уровня для устранения засветки при анализе
@@ -738,13 +740,15 @@ void find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show) {
   if (show) {
 	  Serial.printf("Y_first=%d, Y_mid=%d, Y_last=%d\n", Y_first, Y_mid, Y_last);
   }
+  return ESP_OK;
+
 
 }
 //---------------------------------------------------- find_digits_y
 
 
 //---------------------------------------------------- find_max_digital_X
-void find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show) {
+esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show) {
   //fr_buf буфер с изображением формата uint16_t
   //mid_level средний уровень изображения
   //add_mid_level повышение следующего уровня для устранения засветки при отображении
@@ -804,7 +808,7 @@ void find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool
 
         if (dig > number_letter - 1) { //усли найдено больше чем цифр в шкале 8 number_letter - 1
           if (show) Serial.printf("Found more numbers than in the scale along the X axis!!! %d\n", dig);
-          return;
+          return ESP_FAIL;
         }
         max_letter_x[dig] = ((x2 - x1) >> 1) + x1;
 
@@ -845,8 +849,11 @@ void find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool
       x2 = 0;
     }
   }
-  if (dig != number_letter)
+  if (dig != number_letter){
     if (show) Serial.printf("Not all scale digits are found on the X axis!!! %d\n", dig);
+    return ESP_FAIL;
+  }
+  return ESP_OK;
 }
 //---------------------------------------------------- find_max_digital_X
 
@@ -1054,7 +1061,9 @@ esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_leve
 
 	  if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
 		  dig++; //перейти к следующей цифре
-		  Serial.printf("Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
+
+		  //Serial.printf("[dispalay_ttf_B_W] Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
+
 		  if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
 	  }
 
@@ -1116,7 +1125,8 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
 	  }
 
       size_t out_len = image_matrix->w * image_matrix->h * 3;
-
+      free(jpeg_Out->buf);
+      jpeg_Out->buf = NULL;
 	  if(!fmt2jpg(image_matrix->item, out_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
 		  Serial.println("[HDR_2_jpeg] JPEG compression failed");
 	  }
@@ -1142,23 +1152,26 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
 
 
 //---------------------------------------------------- sum_frames
-esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
+esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
   uint32_t tstart;
   fb = NULL;
 
-  uint16_t W = area_frame.X2 - area_frame.X1;
-  uint16_t H = area_frame.Y2 - area_frame.Y1;
+  uint16_t W = area_frame->X2 - area_frame->X1;
+  uint16_t H = area_frame->Y2 - area_frame->Y1;
+
+  Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
   //накопление кадров - проинтегрировать несколько кадров для устранения шумов
   tstart = clock();
 
-  memset(fr_buf->buf, 0, W * H * sizeof(uint16_t)); //выделить память и очистить размер в байтих
-  fr_buf->max = 0x0000;
-  fr_buf->min = 0xFFFF;
-
   uint8_t frame_c = count;
-  if (s->pixformat != PIXFORMAT_GRAYSCALE)
-    frame_c = 1; //если цветное то не суммировать по кадрам
+
+  // Clear HDR buffer
+  for(uint32_t i = 0; i < frame_buf.buf_len; i++){
+	  frame_buf.buf[i] = 0x0000;
+  }
+  fr_buf->max 	 = 0x0000;
+  fr_buf->min 	 = 0xFFFF;
 
   for (uint8_t frames = 0; frames < frame_c; frames++) { //усредненее по кадрам frame_count
     if (fb) { //освободить буфер
@@ -1166,41 +1179,69 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
       fb = NULL;
     }
 
-    digitalWrite(BUILD_IN_LED, HIGH);
+    Serial.printf("Camera capture: ");
+
+    if(V[V_Flash] != 0.0) {
+    	digitalWrite(BUILD_IN_LED, HIGH);
+    };
+
     fb = esp_camera_fb_get(); //получить данные от камеры
+
     digitalWrite(BUILD_IN_LED, LOW);
 
     if (!fb) {
-      Serial.printf("Camera capture failed to display\n");
+      Serial.printf("[sum_frames] Camera capture failed\n");
       return ESP_FAIL;
     }
+    else{
+      Serial.printf("[sum_frames] Camera capture OK\n");
+    }
 
-    uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
+	Serial.printf("[sum_frames] Framebuffer from camera fb size is %u bytes\r\n", fb->len);
 
-    //proceed only cropped area of the frame
-    for (uint16_t y = area_frame.Y1; y < area_frame.Y2; y++)
-    for (uint16_t x = area_frame.X1; x < area_frame.X2; x++) {
+    // Huge JPEG crop and store cropped area to HDR buffer
+    if (fb->format == PIXFORMAT_JPEG){
 
-    	  uint32_t i = (y * fb->width + x); // fb->buf adress from coordinates
-		  uint32_t j = (y - area_frame.Y1) * W + (x-area_frame.X1); // fr_buf adress from coordinates
+		boolean decoded = JpegDec.decodeArray(fb->buf, fb->len);
+		if (decoded) {
+			// print information about the image to the serial port
+			//jpegInfo();
 
-    	  if (s->pixformat == PIXFORMAT_GRAYSCALE) {
-    		  fr_buf->buf[j] += fb->buf[i]; // accumulate cropped area
-    	  }
-    	  else { //если RGB565 берем 8 битный буфер и преобразуем в 16 битный
-			  i <<= 1; //если RGB565
-			  //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
-			  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
-    	  }
-    	  fr_buf->max = fr_buf->max > fr_buf->buf[j] ? fr_buf->max : fr_buf->buf[j];
-    	  fr_buf->min = fr_buf->min < fr_buf->buf[j] ? fr_buf->min : fr_buf->buf[j];
-     }
+			// render the image onto the screen at given coordinates
+			jpegRender(fr_buf, area_frame);
+		}
+		else {
+			Serial.println("[decodeArray] Jpeg file format not supported!");
+		}
 
+    }
+    else{
+
+
+		uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
+
+		//proceed only cropped area of the frame
+		for (uint16_t y = area_frame->Y1; y < area_frame->Y2; y++)
+		for (uint16_t x = area_frame->X1; x < area_frame->X2; x++) {
+
+			  uint32_t i = (y * fb->width + x); // fb->buf adress from coordinates
+			  uint32_t j = (y - area_frame->Y1) * W + (x-area_frame->X1); // fr_buf adress from coordinates
+
+			  if (fb->format == PIXFORMAT_GRAYSCALE) {
+				  fr_buf->buf[j] += fb->buf[i]; // accumulate cropped area
+			  }
+			  else { //если RGB565 берем 8 битный буфер и преобразуем в 16 битный
+				  i <<= 1; //если RGB565
+				  //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
+				  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
+			  }
+			  fr_buf->max = fr_buf->max > fr_buf->buf[j] ? fr_buf->max : fr_buf->buf[j];
+			  fr_buf->min = fr_buf->min < fr_buf->buf[j] ? fr_buf->min : fr_buf->buf[j];
+		 }
+    }
   } //суммирование по кадрам
-  fr_buf->width 	= area_frame.X2 - area_frame.X1;
-  fr_buf->height 	= area_frame.Y2 - area_frame.Y1;
 
-  Serial.printf(PSTR("[CAPTURE] Free heap before RGB888: %d bytes\n"), ESP.getFreeHeap());
+  Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
   if (fb) { //освободить буфер
 
@@ -1234,10 +1275,10 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
 	            colour_buf.format = FB_BGR888;
 
 	            // rectangle box
-				int x = (int)area_frame.X1;
-				int y = (int)area_frame.Y1;
-				int w = (int)area_frame.X2 - x + 1;
-				int h = (int)area_frame.Y2 - y + 1;
+				int x = (int)area_frame->X1;
+				int y = (int)area_frame->Y1;
+				int w = (int)area_frame->X2 - x + 1;
+				int h = (int)area_frame->Y2 - y + 1;
 
 				fb_gfx_drawFastHLine(&colour_buf, x, y, w, 		FACE_COLOR_GREEN);
 				fb_gfx_drawFastHLine(&colour_buf, x, y+h-1, w, 	FACE_COLOR_GREEN);
@@ -1246,6 +1287,8 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
 
 				Serial.printf(PSTR("[CAPTURE] Free heap after RGB888: %d bytes\n"), ESP.getFreeHeap());
 
+				free(jpeg_full_frame.buf);
+				jpeg_full_frame.buf = NULL;
 			    if(!fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 80, &jpeg_full_frame.buf, &jpeg_full_frame.buf_len)){
 			        Serial.println("JPEG compression failed");
 			    }
@@ -1256,13 +1299,21 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
 	    }
         dl_matrix3du_free(image_matrix);
         image_matrix = NULL;
+
+        // release buffer only if its not used by JPEG
+        esp_camera_fb_return(fb);
+        fb = NULL;
+	}
+	else{
+		// no additional drawings on huge JPEG possible
+		jpeg_full_frame.buf = fb->buf;
+		jpeg_full_frame.buf_len = fb->len;
 	}
 
-    esp_camera_fb_return(fb);
-    fb = NULL;
+
   }
 
-  Serial.printf(PSTR("[CAPTURE] Free heap after RGB888 and JPEG: %d bytes\n"), ESP.getFreeHeap());
+  Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
   if (show) {
     Serial.printf("Capture camera time: %u ms of %d frames\n", clock() - tstart, frame_c);
@@ -1275,7 +1326,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame area_frame, uint8_t count) {
 void setup() {
 
   Serial.begin(115200);
-  Serial.setDebugOutput(false);
+  Serial.setDebugOutput(true);
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -1297,47 +1348,33 @@ void setup() {
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.frame_size = FRAMESIZE_QVGA;
-  config.pixel_format = PIXFORMAT_GRAYSCALE; //PIXFORMAT_GRAYSCALE; //PIXFORMAT_RGB565;
-  config.fb_count = 1; //2
+
+  if(!psramFound()){
+    Serial.printf(PSTR("[SETUP] psram not found. Change board to PSRAM enabled\n"));
+    delay(10000);
+    ESP.restart();
+  }
+
+  config.frame_size = FRAMESIZE_UXGA;
+  config.pixel_format = PIXFORMAT_JPEG; //PIXFORMAT_GRAYSCALE; //PIXFORMAT_RGB565;
+  config.jpeg_quality = 5;				// Lower values - less compression - bigger size
+  config.fb_count = 1;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
-    delay(1000);
+    delay(2000);
     ESP.restart();
   }
-
-  s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_QVGA);
-
-  /*
-    #ifdef  display_2_0
-    s->set_hmirror(s, 1);
-    s->set_vflip(s, 1);
-    #endif
-  */
-  //  s->set_special_effect(s, 1); //Negative
-  //s->set_brightness(s, Value);
-  //       s->set_saturation(s, Value);
-  //       s->set_contrast(s, Value);
+  else {
+	  Serial.println("Camera init OK");
+  }
 
   WiFi_Connect();
-
-  uint32_t f8  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-  frame_buf.buf = (uint16_t *)heap_caps_calloc(F_WIDTH * F_HEIGHT * 2, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  if (frame_buf.buf == NULL) {
-    Serial.printf("malloc failed frame_buf\n");
-  }
-  else {
-    Serial.printf("malloc succeeded frame_buf\n");
-  }
-  Serial.printf("8BIT = %d\n", f8 - heap_caps_get_free_size(MALLOC_CAP_8BIT));
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
     Hemming[dig].dig_defined = 10; //заносим первоначально максимальное число вне диапазона 0-9
   }
-
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -1408,33 +1445,45 @@ void setup() {
 		V[V_CropX1] = inputMessage.toInt();
 
 		store_check_limits(V[V_CropX1], 0, V[V_CropX2], "/V_CropX1.txt");
+
+		delay(100);
+		ESP.restart();
     }
     else if (request->hasParam("inputIntX2")) {
         inputMessage = request->getParam("inputIntX2")->value();
         V[V_CropX2] = inputMessage.toInt();
 
-        store_check_limits(V[V_CropX2], V[V_CropX1], 320, "/V_CropX2.txt");
+        store_check_limits(V[V_CropX2], V[V_CropX1], 1600, "/V_CropX2.txt");
+
+		delay(100);
+		ESP.restart();
     }
     else if (request->hasParam("inputIntY1")) {
         inputMessage = request->getParam("inputIntY1")->value();
         V[V_CropY1] = inputMessage.toInt();
 
         store_check_limits(V[V_CropY1], 0, V[V_CropY2], "/V_CropY1.txt");
+
+		delay(100);
+		ESP.restart();
     }
     else if (request->hasParam("inputIntY2")) {
         inputMessage = request->getParam("inputIntY2")->value();
         V[V_CropY2] = inputMessage.toInt();
 
-        store_check_limits(V[V_CropY2], V[V_CropY1], 240, "/V_CropY2.txt");
+        store_check_limits(V[V_CropY2], V[V_CropY1], 1200, "/V_CropY2.txt");
+
+		delay(100);
+		ESP.restart();
     }
     else if (request->hasArg("FlashLED")) {
         inputMessage = request->arg("FlashLED");
 
         Serial.printf("FlashLED inputMessage = %s\r\n", inputMessage);
 
-        V[V_Flash] = (inputMessage == "ticked");
+        V[V_Flash] = 1.0;
 
-        store_check_limits(V[V_Flash], -1, 1, "/V_Flash.txt");
+        store_check_limits(V[V_Flash], 0, 1, "/V_Flash.txt");
     }
     else if (request->hasParam("V_offset_y")) {
         inputMessage = request->getParam("V_offset_y")->value();
@@ -1469,8 +1518,8 @@ void setup() {
     else {
     	inputMessage = "No message sent";
 
-        V[V_Flash] = false;
-        store_check_limits(V[V_Flash], -1, 1, "/V_Flash.txt");
+        V[V_Flash] = 0.0;
+        store_check_limits(V[V_Flash], 0, 1, "/V_Flash.txt");
     }
     Serial.println(inputMessage);
     request->send(200, "text/text", inputMessage);
@@ -1515,6 +1564,29 @@ void setup() {
   // Start server
   server.begin();
 
+  // Prepare HDR buffer
+  area_frame.X1 = (int)V[V_CropX1];
+  area_frame.Y1 = (int)V[V_CropY1];
+  area_frame.X2 = (int)V[V_CropX2];
+  area_frame.Y2 = (int)V[V_CropY2];
+
+  frame_buf.width 	= area_frame.X2 - area_frame.X1;	  //fr_buf size need to be defined for cropping algorithm
+  frame_buf.height 	= area_frame.Y2 - area_frame.Y1;
+  frame_buf.buf_len = frame_buf.width * frame_buf.height;
+
+  uint32_t f8  = heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  frame_buf.buf = (uint16_t *)heap_caps_calloc(1, frame_buf.buf_len * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (frame_buf.buf == NULL) {
+    Serial.printf("malloc failed for HDR frame_buf\n");
+    delay(10000);
+    ESP.restart();
+  }
+  else {
+    Serial.printf("malloc succeeded for HDR frame_buf. Taken 8BIT chunks = %d\n", f8 - heap_caps_get_free_size(MALLOC_CAP_8BIT));
+  }
+
+
+
   // Take first photo immediately
   takeNewPhoto = true;
 }
@@ -1528,6 +1600,7 @@ void WiFi_Connect()
   uint32_t timeout = millis();
 
   WiFi.begin(ssid, password);
+  WiFi.setHostname("counercam");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.printf(".");
@@ -1536,6 +1609,7 @@ void WiFi_Connect()
   if (WiFi.status() == WL_CONNECTED) {
     Serial.printf("\nWiFi connected.\nCamera Stream Ready! Go to: http://");
     Serial.printf("%s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Hostname: %s\n", WiFi.getHostname());
   }
   else { //create AP
     WiFi.softAP("ESP32", "87654321");
@@ -1686,27 +1760,32 @@ void loop() {
 	if (takeNewPhoto) {
 	  uint16_t offset=0;
 
-	  area_frame.X1 = (int)V[V_CropX1];
-	  area_frame.Y1 = (int)V[V_CropY1];
-	  area_frame.X2 = (int)V[V_CropX2];
-	  area_frame.Y2 = (int)V[V_CropY2];
+	  takeNewPhoto = false;
 
-	  sum_frames(&frame_buf, true, area_frame, V[V_number_of_sum_frames]);		//Get required number of frames from camera and integrate them
-	  Serial.printf("HDR image. Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
+	  if(sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames])){		//Get required number of frames from camera and integrate them
+		  return;
+	  }
+	  Serial.printf("HDR image: Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
 
-	  HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR);		//Itermediate HDR cropped picture to jpeg buffer for browser
-
+	  if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
+		  return;
+	  }
+return;
 	  //найти средний уровень пикселей окна табло
 	  pixel_level = find_middle_level_image(&frame_buf, false);
 
 	  //поиск положения окна цифр - при найденом уровне по оси y
 	  offset = V[V_level_find_digital_Y]*(frame_buf.max-frame_buf.min)/100;
-	  find_digits_y(&frame_buf, pixel_level + offset, false); //уровень повысим на 15 единиц, чтобы убрать засветку
+	  if(find_digits_y(&frame_buf, pixel_level + offset, false)){ //уровень повысим на 15 единиц, чтобы убрать засветку
+		  return;
+	  }
 	  Serial.printf("Detected Y_first =%d, Y_last=%d\r\n", Y_first, Y_last);
 
 	  //поиск максимума - предположительно середины цифр
 	  // find maximum brightness of summary columns values
-	  find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true); //уровень повысим на 7 единиц, чтобы убрать засветку
+	  if(find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true)){ //уровень повысим на 7 единиц, чтобы убрать засветку
+		  return;
+	  }
 
 	  //найти средний уровень для каждой цифры
 	  find_middle_britnes_digital(&frame_buf, true);
@@ -1799,9 +1878,6 @@ void loop() {
 
 		Serial.printf("Result summary Hemming destination=%d at offset=%d result offset=%.0f errors: %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
 	  }
-
-
-	  takeNewPhoto = false;
 	}
 
 	if (WiFi.status() != WL_CONNECTED) {
@@ -1815,3 +1891,125 @@ void loop() {
 
 }
 //---------------------------------------------------- loop
+
+
+
+// From https://github.com/Bodmer/JPEGDecoder/blob/master/examples/Other%20libraries/NodeMCU_Jpeg_ESP/JPEG_functions.ino
+// Return the minimum of two values a and b
+#define minimum(a,b)     (((a) < (b)) ? (a) : (b))
+
+//====================================================================================
+//   Print information decoded from the Jpeg image
+//====================================================================================
+void jpegInfo() {
+
+  Serial.println("===============");
+  Serial.println("JPEG image info");
+  Serial.println("===============");
+  Serial.print  ("Width      :"); Serial.println(JpegDec.width);
+  Serial.print  ("Height     :"); Serial.println(JpegDec.height);
+  Serial.print  ("Components :"); Serial.println(JpegDec.comps);
+  Serial.print  ("MCU / row  :"); Serial.println(JpegDec.MCUSPerRow);
+  Serial.print  ("MCU / col  :"); Serial.println(JpegDec.MCUSPerCol);
+  Serial.print  ("Scan type  :"); Serial.println(JpegDec.scanType);
+  Serial.print  ("MCU width  :"); Serial.println(JpegDec.MCUWidth);
+  Serial.print  ("MCU height :"); Serial.println(JpegDec.MCUHeight);
+  Serial.println("===============");
+  Serial.println("");
+}
+
+//====================================================================================
+//   Decode and render the Jpeg image onto the TFT screen
+//====================================================================================
+void jpegRender(HDR *DestBuff, frame *area_frame) {
+
+  // Only upper left corner used from area_frame - size of area already defined by DestBuff size
+
+  // retrieve infomration about the image
+  uint16_t  *pImg;
+  uint16_t mcu_w = JpegDec.MCUWidth;
+  uint16_t mcu_h = JpegDec.MCUHeight;
+  uint32_t max_x = JpegDec.width;
+  uint32_t max_y = JpegDec.height;
+
+  // Jpeg images are draw as a set of image block (tiles) called Minimum Coding Units (MCUs)
+  // Typically these MCUs are 16x16 pixel blocks
+  // Determine the width and height of the right and bottom edge image blocks
+  uint32_t min_w = minimum(mcu_w, max_x % mcu_w);
+  uint32_t min_h = minimum(mcu_h, max_y % mcu_h);
+
+  // save the current image block size
+  uint32_t win_w = mcu_w;
+  uint32_t win_h = mcu_h;
+
+  // record the current time so we can measure how long it takes to draw an image
+  uint32_t drawTime = millis();
+
+  // read each MCU block until there are no more
+
+  //while( JpegDec.readSwappedBytes()){ // Swap byte order so the SPI buffer can be used
+  while ( JpegDec.read()) { // Normal byte order read
+
+    // save a pointer to the image block
+    pImg = JpegDec.pImage;
+
+    // calculate where the image block should be drawn on the screen
+    int mcu_x = JpegDec.MCUx * mcu_w;
+    int mcu_y = JpegDec.MCUy * mcu_h;
+
+    // check if the image block size needs to be changed for the right and bottom edges
+    if (mcu_x + mcu_w <= max_x) win_w = mcu_w;
+    else win_w = min_w;
+    if (mcu_y + mcu_h <= max_y) win_h = mcu_h;
+    else win_h = min_h;
+
+    // check if current MCU are completly in area_frame bounds (partly MCUs will be cropped)
+    bool inFrame=true;
+
+    inFrame &= ( mcu_x + win_w) 	<= area_frame->X1 + DestBuff->width;	// Right bound
+    inFrame &= ( mcu_y + win_h) 	<= area_frame->Y1 + DestBuff->height;	// Bottom bound
+    inFrame &= mcu_x				>= area_frame->X1;		// Left bound check
+    inFrame &= mcu_y				>= area_frame->Y1;		// Top bound
+
+    // draw image MCU block only if it will fit on the screen
+    if (inFrame){
+
+    	//Serial.printf("[inFrame] MCU coodinates are %i:%i/r/n", mcu_x, mcu_y);
+
+
+		for (uint16_t y = mcu_y; y < mcu_y + win_h - 1; y++)
+		for (uint16_t x = mcu_x; x < mcu_x + win_w - 1; x++) {
+			// it is X and Y coordinates of JPEG image
+
+			  uint32_t i = ((y-mcu_y) * mcu_w + (x-mcu_x)); 							// pImg adress from coordinates
+			  uint32_t j = ((y-area_frame->Y1) * DestBuff->width + (x-area_frame->X1)); // DestBuff adress from coordinates
+
+			  //берем 16 битный RGB565 буфер и преобразуем в 16 битный GRAYSCALE
+			  //https://stackoverflow.com/questions/58449462/rgb565-to-grayscale
+			  int16_t pixel = pImg[i];
+			  int16_t red = ((pixel & 0xF800)>>11);
+			  int16_t green = ((pixel & 0x07E0)>>5);
+			  int16_t blue = (pixel & 0x001F);
+			  int16_t grayscale = (0.2126 * red) + (0.7152 * green / 2.0) + (0.0722 * blue);
+
+			  DestBuff->buf[j] += grayscale; // accumulate in HDR
+
+			  DestBuff->max = DestBuff->max > DestBuff->buf[j] ? DestBuff->max : DestBuff->buf[j];
+			  DestBuff->min = DestBuff->min < DestBuff->buf[j] ? DestBuff->min : DestBuff->buf[j];
+		}
+
+    }
+
+    else if ( ( mcu_y + win_h) >= (area_frame->Y1 + DestBuff->height)) JpegDec.abort();
+
+  }
+  Serial.printf("[jpegRender] Max bright pixel =%d, Min bright pixel=%d\r\n", DestBuff->max, DestBuff->min);
+
+  // calculate how long it took to draw the image
+  drawTime = millis() - drawTime; // Calculate the time it took
+
+  // print the results to the serial port
+  Serial.print  ("Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
+  Serial.println("=====================================");
+
+}

@@ -10,6 +10,8 @@ boolean debug = false;              // set this variable to false on the finale 
 
 typedef struct {
 	unsigned short *buf; 	//указатель на буфер для накопления кадров камеры
+	size_t 	 buf_len;		// Buffer size
+
 	uint16_t max; 	//Max pixel brightness
 	uint16_t min; 	//Min pixel brightness
 
@@ -26,7 +28,7 @@ typedef struct {
 
 typedef struct {
 	uint8_t  *buf;// указатель на буфер для накопления кадров камеры
-	uint32_t buf_len;	// Buffer size
+	size_t 	 buf_len;	// Buffer size
 	uint16_t width; 	// HDR image width
 	uint16_t height;	// HDR image height
 } JPEG;
@@ -87,7 +89,7 @@ String T_1 = "";                    // расстояние Хемминга
 String T_2 = "";                    // частоты повторения цифр
 
 //предопределенные значения
-#define old_number_of_sum_frames 5 //число кадров суммирования
+#define old_number_of_sum_frames 5 //число кадров суммирования (10 - works ok)
 
 #define old_offset_y 83 //смещенее по оси Y при суммировании кадров и отображении на дисплее 54  86
 #define old_offset_x  0 //смещенее по оси X при суммировании кадров и отображении на дисплее
