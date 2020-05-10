@@ -80,10 +80,11 @@ const char index_html[] PROGMEM = R"rawliteral(
 
     </p>
   </div>
-  <div><img src="full-frame"   id="photo" width="30%"></div>
-  <div><img src="crop01-frame" id="photo" width="30%"></div>
-  <div><img src="display01"    id="photo" width="30%"></div>
-
+	<div><a href="../full-frame"  >Full picture</a></div>
+	<div><a href="../small-frame" >Small picture with HDR frame</a></div>
+	<div><a href="../crop01-frame">HDR frame grayscale</a></div>
+	<div><a href="../display01"   >HDR frame pasterized</a></div>
+	<div><a href="../params"      >Parameters screen</a></div>
 </body>
 
 <script>
@@ -184,6 +185,7 @@ const char config_html[] PROGMEM = R"rawliteral(
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
 boolean takeNewPhoto = false;
+boolean refreshCalcs = false;
 
 JPEG jpeg_full_frame;	// Initial camera image
 JPEG jpeg_crop_HDR;		// Cropped HDR stage
@@ -1239,6 +1241,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
   tstart = clock();
 
   uint8_t frame_c = count;
+  sensor_t * s = esp_camera_sensor_get();
 
   // Clear HDR buffer
   for(uint32_t i = 0; i < frame_buf.buf_len; i++){
@@ -1247,16 +1250,22 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
   fr_buf->max 	 = 0x0000;
   fr_buf->min 	 = 0xFFFF;
 
-  for (uint8_t frames = 0; frames < frame_c; frames++) { //усредненее по кадрам frame_count
+  // Prepare camera for image capture quality parameters
+  s->set_framesize(s, FRAMESIZE_UXGA);
+  s->set_pixformat(s, PIXFORMAT_JPEG);
+  s->set_quality(s, 5);
+
+  for (uint8_t frames = 0; frames < frame_c; frames++) { //усредненее по кадрам frame_count // +1 for last low quality photo for visualization in browser
     if (fb) { //освободить буфер
       esp_camera_fb_return(fb);
       fb = NULL;
     }
 
-    Serial.printf("Camera capture: ");
+    Serial.printf("[sum_frames] Camera capture: ");
 
     if(V[V_Flash] != 0.0) {
     	digitalWrite(BUILD_IN_LED, HIGH);
+    	delay(5);
     };
 
     fb = esp_camera_fb_get(); //получить данные от камеры
@@ -1264,32 +1273,32 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
     digitalWrite(BUILD_IN_LED, LOW);
 
     if (!fb) {
-      Serial.printf("[sum_frames] Camera capture failed\n");
+      Serial.printf("Camera capture failed\n");
       return ESP_FAIL;
     }
     else{
-      Serial.printf("[sum_frames] Camera capture OK\n");
+      Serial.printf("Camera capture OK\n");
     }
 
 	Serial.printf("[sum_frames] Framebuffer from camera fb size is %u bytes\r\n", fb->len);
 
-    // Huge JPEG crop and store cropped area to HDR buffer
-    if (fb->format == PIXFORMAT_JPEG){
+	// Huge JPEG crop and store cropped area to HDR buffer
+	if (fb->format == PIXFORMAT_JPEG){
 
 		boolean decoded = JpegDec.decodeArray(fb->buf, fb->len);
 		if (decoded) {
 			// print information about the image to the serial port
 			//jpegInfo();
 
-			// render the image onto the screen at given coordinates
+			// render the image onto the HDR container at given coordinates
 			jpegRender(fr_buf, area_frame);
 		}
 		else {
-			Serial.println("[decodeArray] Jpeg file format not supported!");
+			Serial.println("[sum_frames] Jpeg file format not supported!");
 		}
 
-    }
-    else{
+	}
+	else{
 
 
 		uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
@@ -1314,87 +1323,124 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 			  fr_buf->max = fr_buf->max > fr_buf->buf[j] ? fr_buf->max : fr_buf->buf[j];
 			  fr_buf->min = fr_buf->min < fr_buf->buf[j] ? fr_buf->min : fr_buf->buf[j];
 		 }
-    }
+	}
+
   } //суммирование по кадрам
 
   Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
-  if (fb) { //освободить буфер
 
-	// Get last frame to JPEG compression
-	if(fb->format != PIXFORMAT_JPEG){
+  // camera shoot for preview in browser
+	if (fb) { //освободить буфер
+		esp_camera_fb_return(fb);
+		fb = NULL;
+	}
 
-	    dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, fb->width, fb->height, 3);
-	    if (!image_matrix) {
-	        Serial.println("dl_matrix3du_alloc failed");
-	    }
-	    else{
+	s->set_framesize(s, FRAMESIZE_QVGA);
+	s->set_pixformat(s, PIXFORMAT_JPEG);	// YUV format gives black picture :( RGB888 works bad with fmt2rgb888 ((
 
-	        size_t out_len, out_width, out_height;
-	        uint8_t * out_buf;
+    Serial.printf("\r\n[sum_frames] Preview camera capture: ");
+    if(V[V_Flash] != 0.0) {
+    	digitalWrite(BUILD_IN_LED, HIGH);
+    	delay(5);
+    };
+    fb = esp_camera_fb_get(); //получить данные от камеры
+    digitalWrite(BUILD_IN_LED, LOW);
+    if (!fb) {
+      Serial.printf("failed\n");
+      return ESP_FAIL;
+    }
+    else{
+      Serial.printf("OK\n");
+    }
+	Serial.printf("[sum_frames] Framebuffer with preview image from camera fb size is %u bytes\r\n", fb->len);
 
-	        out_buf = image_matrix->item;
-	        out_len = fb->width * fb->height * 3;
-	        out_width = fb->width;
-	        out_height = fb->height;
-
-	        if(!fmt2rgb888(fb->buf, fb->len, fb->format, out_buf)){
-	            Serial.println("to rgb888 failed");
-	        }
-	        else{
-
-	            fb_data_t colour_buf;
-	            colour_buf.width = image_matrix->w;
-	            colour_buf.height = image_matrix->h;
-	            colour_buf.data = image_matrix->item;
-	            colour_buf.bytes_per_pixel = 3;
-	            colour_buf.format = FB_BGR888;
-
-	            // rectangle box
-				int x = (int)area_frame->X1;
-				int y = (int)area_frame->Y1;
-				int w = (int)area_frame->X2 - x + 1;
-				int h = (int)area_frame->Y2 - y + 1;
-
-				fb_gfx_drawFastHLine(&colour_buf, x, y, w, 		FACE_COLOR_GREEN);
-				fb_gfx_drawFastHLine(&colour_buf, x, y+h-1, w, 	FACE_COLOR_GREEN);
-				fb_gfx_drawFastVLine(&colour_buf, x, y, h, 		FACE_COLOR_GREEN);
-				fb_gfx_drawFastVLine(&colour_buf, x+w-1, y, h, 	FACE_COLOR_GREEN);
-
-				Serial.printf(PSTR("[CAPTURE] Free heap after RGB888: %d bytes\n"), ESP.getFreeHeap());
-
-				free(jpeg_full_frame.buf);
-				jpeg_full_frame.buf = NULL;
-			    if(!fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 80, &jpeg_full_frame.buf, &jpeg_full_frame.buf_len)){
-			        Serial.println("JPEG compression failed");
-			    }
-				else{
-					Serial.printf("JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_full_frame.buf_len);
-				}
-	        }
-	    }
-        dl_matrix3du_free(image_matrix);
-        image_matrix = NULL;
-
-        // release buffer only if its not used by JPEG
-        esp_camera_fb_return(fb);
-        fb = NULL;
+	dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, fb->width, fb->height, 3); // Allocate RGB888 memory area for drawing
+	if (!image_matrix) {
+		Serial.println("[sum_frames] dl_matrix3du_alloc failed");
 	}
 	else{
-		// no additional drawings on huge JPEG possible
-		jpeg_full_frame.buf = fb->buf;
-		jpeg_full_frame.buf_len = fb->len;
+		if(!fmt2rgb888(fb->buf, fb->len, fb->format, image_matrix->item)){	// Fill allocated area with camera picture
+			Serial.println("[sum_frames] convert preview frame to rgb888 failed");
+		}
+		else{
+
+		    fb_data_t colour_buf;								// pointer to picture for drawing procedures
+		    colour_buf.width = fb->width;
+		    colour_buf.height = fb->height;
+		    colour_buf.bytes_per_pixel = 3;
+		    colour_buf.format = FB_RGB888;
+			colour_buf.data = image_matrix->item;
+
+			// draw rectangle box
+			int x = (int)(area_frame->X1)						*320;	// rescale coordinates to smaller resolution
+			int y = (int)(area_frame->Y1)						*240;
+			int w = (int)(area_frame->X2 - area_frame->X1 + 1)	*320;
+			int h = (int)(area_frame->Y2 - area_frame->Y1 + 1)	*240;
+
+			x /= 1600;
+			y /= 1200;
+			w /= 1600;
+			h /= 1200;
+
+			fb_gfx_drawFastHLine(&colour_buf, x, y, w, 		FACE_COLOR_GREEN);
+			fb_gfx_drawFastHLine(&colour_buf, x, y+h-1, w, 	FACE_COLOR_GREEN);
+			fb_gfx_drawFastVLine(&colour_buf, x, y, h, 		FACE_COLOR_GREEN);
+			fb_gfx_drawFastVLine(&colour_buf, x+w-1, y, h, 	FACE_COLOR_GREEN);
+
+			// release buffers
+			if(jpeg_full_frame.buf != NULL){
+				free(jpeg_full_frame.buf);
+				jpeg_full_frame.buf = NULL;
+			}
+			if (fb) { //освободить буфер
+				esp_camera_fb_return(fb);
+				fb = NULL;
+			}
+
+			Serial.printf(PSTR("[sum_frames] Free heap befrore preview JPEG compression: %d bytes\n"), ESP.getFreeHeap());
+
+
+			// compress result to JPEG
+			if(!fmt2jpg(colour_buf.data, colour_buf.width*colour_buf.height*colour_buf.bytes_per_pixel, colour_buf.width, colour_buf.height, PIXFORMAT_RGB888, 60, &jpeg_full_frame.buf, &jpeg_full_frame.buf_len)){
+				Serial.println("[sum_frames] JPEG compression failed");
+			}
+			else{
+				Serial.printf("[sum_frames] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_full_frame.buf_len);
+			}
+
+			dl_matrix3du_free(image_matrix);
+			image_matrix = NULL;
+		}
+
 	}
 
+	// Prepare camera for full size preview with high compression quality parameters
+	s->set_framesize(s, FRAMESIZE_UXGA);
+	s->set_pixformat(s, PIXFORMAT_JPEG);
+	s->set_quality(s, 40);
+    Serial.printf("\r\n[sum_frames] Preview camera capture: ");
+    if(V[V_Flash] != 0.0) {
+    	digitalWrite(BUILD_IN_LED, HIGH);
+    	delay(5);
+    };
+    fb = esp_camera_fb_get(); //получить данные от камеры
+    digitalWrite(BUILD_IN_LED, LOW);
+    if (!fb) {
+      Serial.printf("failed\n");
+      return ESP_FAIL;
+    }
+    else{
+      Serial.printf("OK\n");
+    }
+	Serial.printf("[sum_frames] Framebuffer with full size hi-compressed preview from camera fb size is %u bytes\r\n", fb->len);
 
-  }
+	Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
-  Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
-
-  if (show) {
-    Serial.printf("Capture camera time: %u ms of %d frames\n", clock() - tstart, frame_c);
-  }
-  return ESP_OK;
+	if (show) {
+		Serial.printf("[sum_frames] Summary capture time for all frames: %u ms of %d frames\n", clock() - tstart, frame_c);
+	}
+	return ESP_OK;
 }
 //---------------------------------------------------- sum_frames
 
@@ -1431,10 +1477,11 @@ void setup() {
     ESP.restart();
   }
 
+  config.fb_count = 1;
+
   config.frame_size = FRAMESIZE_UXGA;
   config.pixel_format = PIXFORMAT_JPEG; //PIXFORMAT_GRAYSCALE; //PIXFORMAT_RGB565;
   config.jpeg_quality = 5;				// Lower values - less compression - bigger size
-  config.fb_count = 1;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
@@ -1467,14 +1514,35 @@ void setup() {
       // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
       // This is necessary when a TLS connection is open since it sucks too much memory
 	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
-	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+	  if(!fb){
+		  request->send(200, "text/text", "No picture");
+	  }
+	  else{
+		  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+		  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+			  return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)fb->buf, fb->len);
+		  });
+		  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+		  request->send(response);
+	  }
+  });
 
-	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
-          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_full_frame.buf, jpeg_full_frame.buf_len);
-      });
-	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
-	  request->send(response);
+  server.on("/small-frame", HTTP_GET, [](AsyncWebServerRequest * request) {
 
+      // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
+      // This is necessary when a TLS connection is open since it sucks too much memory
+	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
+	  if(jpeg_full_frame.buf == NULL){
+		  request->send(200, "text/text", "No picture");
+	  }
+	  else{
+		  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+		  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+			  return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_full_frame.buf, jpeg_full_frame.buf_len);
+		  });
+		  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+		  request->send(response);
+	  }
   });
 
   server.on("/crop01-frame", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -1482,19 +1550,18 @@ void setup() {
       // Chunked response, we calculate the chunks based on free heap (in multiples of 32)
       // This is necessary when a TLS connection is open since it sucks too much memory
 	  // https://github.com/helderpe/espurna/blob/76ad9cde5a740822da9fe6e3f369629fa4b59ebc/code/espurna/web.ino - Thanks A LOT!
-	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
 
-	  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
-          return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_crop_HDR.buf, jpeg_crop_HDR.buf_len);
-      });
-	  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
-	  request->send(response);
-
-  });
-
-  server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest * request) {
-     request->send_P(200, "text/plain", "Rebooting");
-     ESP.restart();
+	  if(jpeg_crop_HDR.buf == NULL){
+		  request->send(200, "text/text", "No picture");
+	  }
+	  else{
+	  	  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
+		  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
+			  return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_crop_HDR.buf, jpeg_crop_HDR.buf_len);
+		  });
+		  response->addHeader("Content-Disposition", "inline; filename=capture.jpeg");
+		  request->send(response);
+	  }
   });
 
   server.on("/display01", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -1508,7 +1575,6 @@ void setup() {
 	  }
 	  else{
 		  Serial.printf(PSTR("[MAIN] Free heap: %d bytes\n"), ESP.getFreeHeap());
-
 		  AsyncWebServerResponse *response = request->beginChunkedResponse("image/jpeg",[](uint8_t *buffer, size_t maxLen, size_t index) -> size_t{
 			  return genBufferChunk((char *)buffer, (int)maxLen, index, (char *)jpeg_display01.buf, jpeg_display01.buf_len);
 		  });
@@ -1516,6 +1582,12 @@ void setup() {
 		  request->send(response);
 	  }
   });
+
+  server.on("/reboot", HTTP_GET, [](AsyncWebServerRequest * request) {
+     request->send_P(200, "text/plain", "Rebooting");
+     ESP.restart();
+  });
+
   server.on("/params", HTTP_GET, [](AsyncWebServerRequest *request){
 	    request->send_P(200, "text/html", config_html, processor);
   });
@@ -1575,30 +1647,40 @@ void setup() {
         V[V_offset_y] = inputMessage.toInt();
 
         store_check_limits(V[V_offset_y], 20, 250, "/V_offset_y.txt");
+
+        refreshCalcs = true;
     }
     else if (request->hasParam("V_offset_x")) {
         inputMessage = request->getParam("V_offset_x")->value();
         V[V_offset_x] = inputMessage.toInt();
 
         store_check_limits(V[V_offset_x], 0,   50, "/V_offset_x.txt");
+
+        refreshCalcs = true;
     }
     else if (request->hasParam("V_level_find_digital_Y")) {
         inputMessage = request->getParam("V_level_find_digital_Y")->value();
         V[V_level_find_digital_Y] = inputMessage.toInt();
 
         store_check_limits(V[V_level_find_digital_Y], 0, 100, "/V_level_find_digital_Y.txt");
+
+        refreshCalcs = true;
     }
     else if (request->hasParam("V_level_find_digital_X")) {
         inputMessage = request->getParam("V_level_find_digital_X")->value();
         V[V_level_find_digital_X] = inputMessage.toInt();
 
         store_check_limits(V[V_level_find_digital_X], 0, 100, "/V_level_find_digital_X.txt");
+
+        refreshCalcs = true;
     }
     else if (request->hasParam("V_level_convert_to_32")) {
         inputMessage = request->getParam("V_level_convert_to_32")->value();
         V[V_level_convert_to_32] = inputMessage.toInt();
 
         store_check_limits(V[V_level_convert_to_32],  0, 1000, "/V_level_convert_to_32.txt");
+
+        refreshCalcs = true;
     }
     else if (request->hasParam("V_number_of_sum_frames")) {
         inputMessage = request->getParam("V_number_of_sum_frames")->value();
@@ -1849,7 +1931,6 @@ void loop() {
 
 
 	if (takeNewPhoto) {
-	  uint16_t offset=0;
 
 	  takeNewPhoto = false;
 
@@ -1861,6 +1942,14 @@ void loop() {
 	  if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
 		  return;
 	  }
+	  refreshCalcs = true;
+	}
+
+
+	if (refreshCalcs) { // recalculate stored image
+	  uint16_t offset=0;
+
+	  refreshCalcs = false;
 
 	  //найти средний уровень пикселей окна табло
 	  pixel_level = find_middle_level_image(&frame_buf, false);
@@ -1912,12 +2001,6 @@ void loop() {
 
 			if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-
-
-
-
-
-
 		} //повторим результат и найдем опознаные числа
 
 		if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
@@ -1968,6 +2051,7 @@ void loop() {
 
 		Serial.printf("Result summary Hemming destination=%d at offset=%d result offset=%.0f errors: %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
 	  }
+
 	}
 
 	if (WiFi.status() != WL_CONNECTED) {
