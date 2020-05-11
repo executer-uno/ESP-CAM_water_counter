@@ -29,6 +29,8 @@
 #include "time.h"
 #include "Credentials.h"
 
+#include "Bitmap_buffer.h"
+
 // JPEG decoder library
 #include <JPEGDecoder.h>
 
@@ -193,6 +195,8 @@ JPEG jpeg_display01;	// Dispaly image digits
 
 frame read_window;			// coordinates of counter values readout window
 
+BitmapBuff *Bitmap = NULL;	// Global pointer to bitmap object
+
 uint16_t pixel_level = 0; //пороговый уровень пикселей на изображении определеный методом Отцу
 
 uint16_t max_letter_x[number_letter]; //массив середины цифры по оси Х
@@ -234,14 +238,7 @@ int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
   { -1, -4},	//left down
 };
 
-#define FACE_COLOR_WHITE  0x00FFFFFF
-#define FACE_COLOR_BLACK  0x00000000
-#define FACE_COLOR_RED    0x000000FF
-#define FACE_COLOR_GREEN  0x0000FF00
-#define FACE_COLOR_BLUE   0x00FF0000
-#define FACE_COLOR_YELLOW (FACE_COLOR_RED | FACE_COLOR_GREEN)
-#define FACE_COLOR_CYAN   (FACE_COLOR_BLUE | FACE_COLOR_GREEN)
-#define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
+
 
 struct Hemming_struct { //структура расстояний Хемминга для всех цифр шкалы
   uint8_t result; // опознанная цифра
@@ -1168,7 +1165,7 @@ esp_err_t dispalay_ttf_B_W(HDR *fr_buf, uint16_t add_mid_level, JPEG *jpeg_Out) 
 }
 //---------------------------------------------------- dispalay_ttf_B_W
 
-
+/*
 //---------------------------------------------------- HDR_2_jpeg
 esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
   uint32_t tstart;
@@ -1224,7 +1221,7 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
 }
 //---------------------------------------------------- HDR_2_jpeg
 
-
+*/
 
 
 //---------------------------------------------------- sum_frames
@@ -1930,6 +1927,10 @@ void loop() {
 	static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
 
 
+	static BitmapBuff BitmapObj(frame_buf.width, frame_buf.height*3);		// bitmap buffer for intermediate results output
+
+	Bitmap = &BitmapObj;
+
 	if (takeNewPhoto) {
 
 	  takeNewPhoto = false;
@@ -1939,9 +1940,25 @@ void loop() {
 	  }
 	  Serial.printf("HDR image: Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
 
-	  if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
+	  //if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
+	  //		  return;
+	  //}
+
+	  frame window_out;
+	  window_out.X1 = 0;
+	  window_out.Y1 = 0;
+	  window_out.X2 = frame_buf.width;
+	  window_out.Y2 = frame_buf.height;
+
+	  if(ESP_OK != Bitmap->HDR2Bitmap(&frame_buf, &window_out)){
+		  Serial.println(PSTR("[takeNewPhoto] HDR2Bitmap failed"));
 		  return;
 	  }
+	  if(ESP_OK != Bitmap->Bitmap2JPEG(&jpeg_crop_HDR, 50)){
+		  Serial.println(PSTR("[takeNewPhoto] HDR2Bitmap failed"));
+		  return;
+	  }
+
 	  refreshCalcs = true;
 	}
 

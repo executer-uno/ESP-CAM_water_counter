@@ -8,32 +8,6 @@ float V[V_memory_count];           // This array is synchronized with Virtuino V
 //---
 boolean debug = false;              // set this variable to false on the finale code to decrease the request time.
 
-typedef struct {
-	unsigned short *buf; 	//указатель на буфер для накопления кадров камеры
-	size_t 	 buf_len;		// Buffer size
-
-	uint16_t max; 	//Max pixel brightness
-	uint16_t min; 	//Min pixel brightness
-
-	uint16_t width; //HDR image width
-	uint16_t height;//HDR image height
-} HDR;
-
-typedef struct {
-	uint16_t X1;
-	uint16_t Y1;
-	uint16_t X2;
-	uint16_t Y2;
-} frame;
-
-typedef struct {
-	uint8_t  *buf;// указатель на буфер для накопления кадров камеры
-	size_t 	 buf_len;	// Buffer size
-	uint16_t width; 	// HDR image width
-	uint16_t height;	// HDR image height
-} JPEG;
-
-
 //Опеределенее ячеек памяти на сервере virtuino
 
 #define V_lastCommTime            0 //V0 время соединения используется для первоначального сброса видимости кнопок в приложении
