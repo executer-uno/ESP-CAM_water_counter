@@ -7,7 +7,7 @@ http://forum.arduino.ua/viewtopic.php?pid=31135#p31135
 Most complicate thing of text recognition will be taken from his project.
 
 Actual browser output view looks like:
-https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171527.png
+![Actual](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171527.png)
 
 Parameters page:
-https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171538.png
+![Parameters](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171538.png)
