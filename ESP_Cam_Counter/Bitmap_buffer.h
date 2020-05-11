@@ -66,7 +66,7 @@ private:
 
 public:
 
-	BitmapBuff *thisPtr;
+	fb_data_t *thisPtr;
 
 
 	BitmapBuff(uint16_t width, uint16_t height);

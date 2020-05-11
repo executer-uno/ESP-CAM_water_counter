@@ -28,7 +28,7 @@ BitmapBuff::BitmapBuff(uint16_t width, uint16_t height){
 
     buf_len = p_width*p_height*pImage.bytes_per_pixel;
 
-	thisPtr = this;
+	thisPtr = &pImage;
 
 }
 
@@ -98,12 +98,19 @@ esp_err_t BitmapBuff::HDR2Bitmap(HDR *fr_buf, frame *area_frame){	// Draws grays
 
 esp_err_t BitmapBuff::Bitmap2JPEG(JPEG *jpeg_Out, uint8_t quality){
 
-	  if(!fmt2jpg(image_matrix->item, buf_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, quality, &jpeg_Out->buf, &jpeg_Out->buf_len)){
-		  Serial.printf(PSTR("[BitmapBuff] JPEG compression failed\r\n"));
-	  }
-	  else{
-		  Serial.printf(PSTR("[BitmapBuff] JPEG compression done. Jpeg size is %i bytes\r\n"), jpeg_Out->buf_len);
-	  }
+
+	// release buffers
+	if(jpeg_Out->buf != NULL){
+		free(jpeg_Out->buf);
+		jpeg_Out->buf = NULL;
+	}
+
+	if(!fmt2jpg(image_matrix->item, buf_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, quality, &jpeg_Out->buf, &jpeg_Out->buf_len)){
+		Serial.printf(PSTR("[BitmapBuff] JPEG compression failed\r\n"));
+	}
+	else{
+		Serial.printf(PSTR("[BitmapBuff] JPEG compression done. Jpeg size is %i bytes\r\n"), jpeg_Out->buf_len);
+	}
 
 
 	return ESP_OK;
