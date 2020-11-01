@@ -13,9 +13,12 @@ Parameters page:
 ![Parameters](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171538.png)
 
 
-How to get that repo into Sloeber IDE:
+# How to get that repo into Sloeber IDE:
+
 •	Sloeber IDE installed ( http://eclipse.baeyens.it/stable.php?OS=Windows )
+
 •	Git installed ( https://git-scm.com/download/win )
+
 I found no way to get github project locally by Sloeber interface, so need to help it a bit. Go to sloeber repos folder and create there a new one for our new project (from git terminal):
 $ cd c:/Users/E_CAD/git/
 $ mkdir ESP_CAM_GIT
