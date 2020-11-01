@@ -20,7 +20,12 @@
 #include "fr_forward.h"
 
 //#include "driver/rtc_io.h"
-#include <C:\Users\E_CAD\git\ESPAsyncWebServer\src\ESPAsyncWebServer.h>
+
+// Use "Arduino -> Add a source folder"
+// C:\Users\E_CAD\git\ESPAsyncWebServer
+// C:\Users\E_CAD\git\AsyncTCP
+
+#include <ESPAsyncWebServer.h>
 #include <StringArray.h>
 
 #include <SPIFFS.h>
