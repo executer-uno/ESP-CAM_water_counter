@@ -20,7 +20,7 @@
 #include "fr_forward.h"
 
 //#include "driver/rtc_io.h"
-#include <ESPAsyncWebServer.h>
+#include <C:\Users\E_CAD\git\ESPAsyncWebServer\src\ESPAsyncWebServer.h>
 #include <StringArray.h>
 
 #include <SPIFFS.h>
@@ -36,29 +36,29 @@
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 7200;
-const int   daylightOffset_sec = 3600; //Р»РµС‚РЅРµРµ РІСЂРµРјСЏ 3600;
+const int   daylightOffset_sec = 3600; //летнее время 3600;
 
-struct tm timeinfo; //СЃС‚СЂСѓРєС‚СѓСЂР° РІСЂРµРјРµРЅРё Р·Р°РїРёСЃРё РєРѕР»СЊС†РµРІРѕРіРѕ Р±СѓС„РµСЂР°
+struct tm timeinfo; //структура времени записи кольцевого буфера
 
-#define info_first 2 ////СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ С€РёСЂРёРЅС‹ Рё РІС‹СЃРѕС‚С‹ С†РёС„СЂ
-#define info_result 58 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ
-#define info_gistorgamm 105 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° РіРёСЃС‚РѕРіСЂР°РјРјС‹
-#define info_Hemming 130 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° РёРЅС„РѕСЂРјР°С†РёРѕРЅРЅРёРё Рѕ СЂР°СЃСЃС‚РѕСЏРЅРёРё РҐРµРјРјРёРЅРіР°
-#define info_frequency 145 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° РёРЅС„РѕСЂРјР°С†РёРѕРЅРЅРёРё Рѕ С‡Р°СЃС‚РѕС‚Рµ СЃРѕРІРїР°РґРµРЅРёСЏ
-#define info_britnes 115 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° РёРЅС„РѕСЂРјР°С†РёРѕРЅРЅРёРё РѕР± СѓСЂРѕРІРЅСЏС… СЏСЂРєРѕСЃС‚Рё
-#define info_time 160 //СЃС‚СЂРѕРєР° РІС‹РІРѕРґР° РЅР° РґРёСЃРїР»РµР№ Рј3/РјРёРЅ СЃРµРє Рё РІСЂРµРјРµРЅРё
+#define info_first 2 ////строка вывода результатов ширины и высоты цифр
+#define info_result 58 //строка вывода результатов распознавания
+#define info_gistorgamm 105 //строка вывода гистограммы
+#define info_Hemming 130 //строка вывода информационнии о расстоянии Хемминга
+#define info_frequency 145 //строка вывода информационнии о частоте совпадения
+#define info_britnes 115 //строка вывода информационнии об уровнях яркости
+#define info_time 160 //строка вывода на дисплей м3/мин сек и времени
 
-//++++++++++++++++++++++++++++++++++++++++++ СЃРЅРёР·РёС‚СЊ РґРѕ 50
-#define Hemming_level 80 //Р—РЅР°С‡РµРЅРµРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РєРѕС‚РѕСЂРѕРµ СЃС‡РёС‚Р°РµС‚СЃСЏ РјР°РєСЃРёРјР°Р»СЊРЅРѕ РґРѕРїСѓСЃС‚РёРјС‹Рј РїСЂРё СЂР°СЃРїРѕР·РЅР°РІР°РЅРёРё  50
+//++++++++++++++++++++++++++++++++++++++++++ снизить до 50
+#define Hemming_level 80 //Значенее расстояния Хемминга которое считается максимально допустимым при распознавании  50
 
-#define width_letter 14 //С€РёСЂРёРЅР° С†РёС„СЂ РІ РїРёРєСЃРµР»СЏС…  //TODO adjustable from interface
-#define number_letter 8 //С‡РёСЃР»Рѕ С†РёС„СЂ РІ С€РєР°Р»Рµ
-#define height_letter 26 //РІС‹СЃРѕС‚Р° РїРѕ y - СЃРѕРІРїР°РґР°РµС‚ СЃ РІС‹СЃРѕС‚РѕР№ СЌС‚Р°Р»РѕРЅР°
+#define width_letter 14 //ширина цифр в пикселях  //TODO adjustable from interface
+#define number_letter 8 //число цифр в шкале
+#define height_letter 26 //высота по y - совпадает с высотой эталона
 
-#define average_count 1 //РєРѕР»РёС‡РµСЃС‚РІРѕ СѓСЃСЂРµРґРЅРµРЅРёР№ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ
-#define average_count_level average_count-3 //С‡РёСЃР»Рѕ СѓСЃСЂРµРґРЅРµРЅРёР№, РєРѕС‚РѕСЂРѕРµ РїСЂРёРЅРёРјР°РµС‚СЃСЏ Р·Р° РїРѕР»РѕР¶РёС‚РµР»СЊРЅРѕРµ РїСЂРё СЂР°СЃРїРѕР·РЅР°РІР°РЅРёРё
+#define average_count 1 //количество усреднений результатов распознавания
+#define average_count_level average_count-3 //число усреднений, которое принимается за положительное при распознавании
 
-#include "sample.h" //РѕР±СЂР°Р·С†С‹ СЌС‚Р°Р»РѕРЅРѕРІ
+#include "sample.h" //образцы эталонов
 
 #define BUILD_IN_LED	4
 
@@ -79,14 +79,12 @@ const char index_html[] PROGMEM = R"rawliteral(
       <button onclick="capturePhoto()">CAPTURE PHOTO</button>
       <button onclick="location.reload();">REFRESH PAGE</button>
       <button onclick="CAMreboot();">REBOOT</button>
-
     </p>
   </div>
 	<div><img src="jpeg-output01" id="photo" width="60%"></div>
 	<div><a href="../jpeg-full-frame"  >Full picture</a></div>
 	<div><a href="../params"      >Parameters screen</a></div>
 </body>
-
 <script>
   function capturePhoto() {
     var xhr = new XMLHttpRequest();
@@ -112,73 +110,61 @@ const char config_html[] PROGMEM = R"rawliteral(
       setTimeout(function(){ document.location.reload(false); }, 500);   
     }
   </script></head><body>
-
   <form action="/get" target="hidden-form">
     Crop area coodinates X1:
 	<input type="number" name="inputIntX1" value=%inputIntX1% min="0" max="1600">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Crop area coodinates Y1:
 	<input type="number" name="inputIntY1" value=%inputIntY1% min="0" max="1200">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Crop area coodinates X2:
 	<input type="number" name="inputIntX2" value=%inputIntX2% min="0" max="1600">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Crop area coodinates Y2:
 	<input type="number" name="inputIntY2" value=%inputIntY2% min="0" max="1200">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Use flashlight (0=OFF; 1=ON):
 	<input type="checkbox" name="FlashLED" value="ticked" %FlashLED%>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Number of frames to integrate:
 	<input type="number" name="V_number_of_sum_frames" value=%V_number_of_sum_frames% min="0" max="20">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
 	offset along the Y axis when summing frames and displaying 20 250:
   <input type="number" name="V_offset_y" value=%V_offset_y% min="20" max="250">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
 	shifted along the X axis when summing frames and displaying 0 - 50:
   <input type="number" name="V_offset_x" value=%V_offset_x% min="0" max="50">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
 	Add. binarization level for searching digits by Y axis (percents):
   <input type="number" name="V_level_find_digital_Y" value=%V_level_find_digital_Y% min="0" max="100">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
     Add. binarization level for searching digits on X axis (percents):
   <input type="number" name="V_level_find_digital_X" value=%V_level_find_digital_X% min="0" max="100">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <form action="/get" target="hidden-form">
 	Add. the binarization level when converting to 32 bits:
   <input type="number" name="V_level_convert_to_32" value=%V_level_convert_to_32% min="-100" max="100">
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-
   <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)rawliteral";
 
@@ -195,16 +181,16 @@ frame read_window;			// coordinates of counter values readout window
 
 BitmapBuff *Bitmap = NULL;	// Global pointer to bitmap object
 
-uint16_t pixel_level = 0; //РїРѕСЂРѕРіРѕРІС‹Р№ СѓСЂРѕРІРµРЅСЊ РїРёРєСЃРµР»РµР№ РЅР° РёР·РѕР±СЂР°Р¶РµРЅРёРё РѕРїСЂРµРґРµР»РµРЅС‹Р№ РјРµС‚РѕРґРѕРј РћС‚С†Сѓ
+uint16_t pixel_level = 0; //пороговый уровень пикселей на изображении определеный методом Отцу
 
-uint16_t max_letter_x[number_letter]; //РјР°СЃСЃРёРІ СЃРµСЂРµРґРёРЅС‹ С†РёС„СЂС‹ РїРѕ РѕСЃРё РҐ
+uint16_t max_letter_x[number_letter]; //массив середины цифры по оси Х
 
-uint32_t l_32[number_letter][300]; //РјР°СЃСЃРёРІ РїРѕСЃР»Рµ РїРµСЂРµРІРѕРґР° СЂР°СЃРїРѕР·РЅР°РІР°РµРјС‹С… С†РёС„СЂ РІ 32 Р±РёС‚РЅРѕРµ С‡РёСЃР»Рѕ. Р—Р°РїР°СЃ РїРѕ РІС‹СЃРѕС‚Рµ СЂР°РІРµРЅ РІС‹СЃРѕС‚Рµ СЌРєСЂР°РЅР°// TODO dinamic memory allocation?
-uint8_t result[average_count][number_letter]; //РЅР°РєРѕРїР»РµРЅРёРµ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ С†РёС„СЂ СЃРѕ С€РєР°Р»С‹
+uint32_t l_32[number_letter][300]; //массив после перевода распознаваемых цифр в 32 битное число. Запас по высоте равен высоте экрана// TODO dinamic memory allocation?
+uint8_t result[average_count][number_letter]; //накопление результатов распознавания цифр со шкалы
 
 
-#define max_shift 9*3 //С‡РёСЃР»Рѕ РІР°СЂРёР°РЅС‚РѕРІ СЃРґРІРёРіР° РїРµСЂРµРјРµС‰РµРЅРёСЏ СЌС‚Р°Р»РѕРЅР°
-int shift_XY[max_shift][2] = { //СЃРѕРґРµСЂР¶РёС‚ СЃРґРІРёРі РїРѕ РѕСЃРё X Y
+#define max_shift 9*3 //число вариантов сдвига перемещения эталона
+int shift_XY[max_shift][2] = { //содержит сдвиг по оси X Y
   {0  ,  0},	//none
   {0  ,  1},   	//up
   {0  ,  2},   	//up
@@ -236,26 +222,26 @@ int shift_XY[max_shift][2] = { //СЃРѕРґРµСЂР¶РёС‚ СЃРґРІРёРі РїРѕ РѕСЃРё X Y
 
 
 
-struct Hemming_struct { //СЃС‚СЂСѓРєС‚СѓСЂР° СЂР°СЃСЃС‚РѕСЏРЅРёР№ РҐРµРјРјРёРЅРіР° РґР»СЏ РІСЃРµС… С†РёС„СЂ С€РєР°Р»С‹
-  uint8_t result; // РѕРїРѕР·РЅР°РЅРЅР°СЏ С†РёС„СЂР°
-  uint16_t min_Hemming; // СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РґР»СЏ РѕРїРѕР·РЅР°РЅРЅРѕР№ С†РёС„СЂС‹
-  uint8_t etalon_number; // РЅРѕРјРµСЂ СЌС‚Р°Р»РѕРЅР° РІ РјР°СЃСЃРёРІРµ СЌС‚Р°Р»РѕРЅРѕРІ
-  uint8_t frequency; //С‡РёСЃР»Рѕ СЃРѕРІРїР°РґРµРЅРёР№ РїСЂРё РѕРїРѕР·РЅР°РЅРёРё
-  uint8_t next_result; // Р·РЅР°С‡РµРЅРµРµ СЃР»РµРґСѓСЋС‰РµР№ С†РёС„СЂС‹
-  uint16_t next_min_Hemming; // СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РґР»СЏ СЃР»РµРґСѓСЋС‰РµР№ С†РёС„СЂС‹
-  uint8_t dig_defined; //РЅР°Р±РѕСЂ СЃРёРјРІРѕР»РѕРІ, РєРѕС‚РѕСЂС‹Р№ РѕРїСЂРµРґРµР»СЏРµС‚СЃСЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё РїРѕСЃР»Рµ СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ
-  uint8_t britnes_digital; //СЏСЂРєРѕСЃС‚СЊ РґР»СЏ РєР°Р¶РґРѕР№ Р±СѓРєРІС‹
-  uint16_t x_width; //РѕРїСЂРµРґРµР»РµРЅРЅР°СЏ С€РёСЂРёРЅР° С†РёС„СЂС‹
+struct Hemming_struct { //структура расстояний Хемминга для всех цифр шкалы
+  uint8_t result; // опознанная цифра
+  uint16_t min_Hemming; // расстояния Хемминга для опознанной цифры
+  uint8_t etalon_number; // номер эталона в массиве эталонов
+  uint8_t frequency; //число совпадений при опознании
+  uint8_t next_result; // значенее следующей цифры
+  uint16_t next_min_Hemming; // расстояния Хемминга для следующей цифры
+  uint8_t dig_defined; //набор символов, который определяется автоматически после распознавания
+  uint8_t britnes_digital; //яркость для каждой буквы
+  uint16_t x_width; //определенная ширина цифры
 } Hemming[number_letter];
 
 
 
-uint8_t frequency[number_of_samples][number_letter]; //РїРѕРґСЃС‡РµС‚ РјР°РєСЃРёРјР°Р»СЊРЅРѕРіРѕ С‡РёСЃР»Р° СЃРѕРІРїР°РґРµРЅРёР№ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ
+uint8_t frequency[number_of_samples][number_letter]; //подсчет максимального числа совпадений результатов распознавания
 
-uint32_t used_samples[number_of_samples][number_letter]; //С‡Р°СЃС‚РѕС‚Р° РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ СЌС‚Р°Р»РѕРЅР°
+uint32_t used_samples[number_of_samples][number_letter]; //частота использования эталона
 
-camera_fb_t * fb; //РґР»СЏ СЂР°Р±РѕС‚С‹ РєР°РјРµСЂС‹ СѓРєР°Р·Р°С‚РµР»СЊ РЅР° СЃС‚СЂСѓРєС‚СѓСЂСѓ Р±СѓС„РµСЂ
-//sensor_t * s; //РґР»СЏ СЂР°Р±РѕС‚С‹ РєР°РјРµСЂС‹ СѓРєР°Р·Р°РёС‚РµР»СЊ РЅР° СЃС‚СЂСѓРєС‚СѓСЂСѓ СЃРµРЅСЃРѕСЂР°
+camera_fb_t * fb; //для работы камеры указатель на структуру буфер
+//sensor_t * s; //для работы камеры указаитель на структуру сенсора
 
 // Replace with your network credentials
 const char* ssid 		= MY_WIFI;
@@ -289,17 +275,17 @@ const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BO
 const char* _STREAM_BOUNDARY = "\n--" PART_BOUNDARY "\n";
 const char* _STREAM_PART = "Content-Type: image/jpeg\nContent-Length: %u\n\n";
 
-#define size_m3 2048 //СЂР°Р·РјРµСЂ РєРѕР»СЊС†РµРІРѕРіРѕ Р±СѓС„РµСЂР° РґР»СЏ С…СЂР°РЅРµРЅРёСЏ РґР°РЅРЅС‹С… РєР°Р¶РґСѓСЋ РјРёРЅСѓС‚Сѓ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ 256, 512, 1024 ...
+#define size_m3 2048 //размер кольцевого буфера для хранения данных каждую минуту должен быть 256, 512, 1024 ...
 
-//СЃС‚СЂСѓРєС‚СѓСЂР° РґР»СЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ РёРЅС„РѕСЂРјР°С†РёРё Рѕ СЂР°СЃС‡РµС‚Рµ РѕР±СЉРµРјР° РіР°Р·Р°
+//структура для сохранения информации о расчете объема газа
 struct Gas_struct {
-  uint32_t m3; //Р·РЅР°С‡РµРЅРµРµ РѕР±СЉРјР° РіР°Р·Р° СѓРјРЅРѕР¶РµРЅРЅРѕРµ РЅР° 100
-  uint32_t minutes; //СЂР°Р·РЅРёС†Р° РІ РјРёРЅСѓС‚Р°С… РјРµР¶РґСѓ РїСЂРµРґС‹РґСѓС‰РёРј Рё С‚РµРєСѓС‰РёРј РёР·РјРµСЂРµРЅРёРµРј
+  uint32_t m3; //значенее объма газа умноженное на 100
+  uint32_t minutes; //разница в минутах между предыдущим и текущим измерением
 } Gas[size_m3];
 
-uint16_t position_m3 = 0; //РїРѕР·РёС†РёСЏ СЃРѕС…СЂР°РЅРµРЅРёСЏ РґР°РЅРЅС‹С…
+uint16_t position_m3 = 0; //позиция сохранения данных
 
-int offset_y_current; //С‚РµРєСѓС‰РµРµ РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕРµ СЃРјРµС‰РµРЅРёРµ РїРѕ РѕСЃРё Y
+int offset_y_current; //текущее дополнительное смещение по оси Y
 
 
 void notFound(AsyncWebServerRequest *request) {
@@ -369,68 +355,68 @@ String processor(const String& var){
 //---------------------------------------------------- m3_calculate
 void m3_calculate() {
 
-  uint32_t k = 1000000; //РєРѕСЌС„С„РёС†РёРµРЅС‚ РїРµСЂРµРІРѕРґР° С†РёС„СЂ С€РєР°Р»С‹ РІ С‡РёСЃР»Рѕ
-  uint32_t current_m3 = 0; //С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРµРµ
-  bool flag = true; //С„Р»Р°Рі СЂР°РїРѕР·РЅР°РІРІР°РЅРёСЏ
+  uint32_t k = 1000000; //коэффициент перевода цифр шкалы в число
+  uint32_t current_m3 = 0; //текущее значенее
+  bool flag = true; //флаг рапознаввания
 
-  uint16_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё РјРёРЅСѓСЃ 1 - РїРµРґС‹РґСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ
+  uint16_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //позиция в буфере места записи минус 1 - педыдущее значение
 
-  for (uint8_t dig = 0; dig < number_letter - 1; dig++) { //РїСЂРѕРІРµСЂРєР° РЅР° РІСЃРµ РєСЂРѕРјРµ РїРѕСЃР»РµРґРЅРµР№ С†РёС„СЂС‹ -1
+  for (uint8_t dig = 0; dig < number_letter - 1; dig++) { //проверка на все кроме последней цифры -1
     if ((Hemming[dig].frequency < average_count_level) || (Hemming[dig].min_Hemming > Hemming_level) || Hemming[dig].dig_defined == 10) {
 
-      //РЅРµС‚ РїСЂР°РІРёР»СЊРЅРѕРіРѕ СЂРµР·СѓР»СЊС‚Р°С‚Р° СѓРІРµР»РёС‡РёРј РїСЂРѕРїСѓС‰РµРЅРЅРѕРµ РІСЂРµРјСЏ РµСЃР»Рё СЌС‚Рѕ РЅРµ РЅР°С‡Р°Р»Рѕ Рё СѓР¶Рµ Р±С‹Р»Рѕ СЂР°СЃРїРѕР·РЅР°РЅРѕ РїСЂРµРґС‹РґСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ Рј3 РЅРµ СЂР°РІРЅРѕ 0
+      //нет правильного результата увеличим пропущенное время если это не начало и уже было распознано предыдущее значение м3 не равно 0
       if (Gas[pos_1].m3 != 0) Gas[position_m3].minutes++;
 
-      current_m3 = 0; //РѕР±РЅСѓР»СЏРµРј, С‚.Рє. РЅРµС‚ РїСЂР°РІРёР»СЊРЅРѕРіРѕ СЂРµР·СѓР»СЊС‚Р°С‚Р°
-      flag = false; //СЃР±СЂРѕСЃРёРј С„Р»Р°Рі - РЅРµ СЂР°СЃРїРѕР·РЅР°Р»Рё
-      break; //РІС‹Р№С‚Рё РёР· С†РёРєР»Р°
+      current_m3 = 0; //обнуляем, т.к. нет правильного результата
+      flag = false; //сбросим флаг - не распознали
+      break; //выйти из цикла
     }
-    current_m3 += Hemming[dig].dig_defined * k; //Р±РµСЂРµРј РѕРїРѕР·РЅР°РЅРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ Рё РїРµСЂРµРІРѕРґРёРј РІ С‡РёСЃР»Рѕ
-    k = k / 10; //СѓРјРµРЅСЊС€Р°РµРј РєРѕСЌС„С„РёС†РёРµРЅС‚ РґР»СЏ СЃР»РµРґСѓСЋС‰РµРіРѕ С‡РёСЃР»Р°
+    current_m3 += Hemming[dig].dig_defined * k; //берем опознанное значенее и переводим в число
+    k = k / 10; //уменьшаем коэффициент для следующего числа
   }
   Serial.printf("flag=%d current_m3= %d minutes=%d position_m3=%d pos_1=%d minutes_1=%d\n",
                 flag, current_m3, Gas[position_m3].minutes, position_m3, pos_1, Gas[pos_1].minutes);
 
-  if (flag) { //СЂР°СЃРїРѕР·РЅР°Р»Рё СЃРѕС…СЂР°РЅСЏРµРј
-    if (((current_m3 - Gas[pos_1].m3 < 0) || (current_m3 - Gas[pos_1].m3 > 6)) && (Gas[pos_1].m3 != 0)) { //РѕС€РёР±РєР° СЂР°СЃРїРѕР·РЅР°РІР°РЅРёСЏ РІРЅРµ РїСЂРµРґРµР»РѕРІ
-      //РµСЃР»Рё СЂР°Р·РЅРёС†Р° РјРµР¶РґСѓ РїСЂРµРґС‹РґСѓС‰РµРј Рё С‚РµРєСѓС‰РёРј Р·РЅР°С‡РµРЅРёРµРј РјРµРЅСЊС€Рµ РЅСѓР»СЏ - С‚РµРєСѓС‰РµРµ РѕРїСЂРµРґРµР»РёР»Рё РЅРµ РІРµСЂРЅРѕ
-      //РµСЃР»Рё СЂР°Р·РЅРёС†Р° Р±РѕР»СЊС€Рµ 0,06 - РѕС€РёР±РєР° РѕРїСЂРµРґРµР»РµРЅРёСЏ - С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РѕРїСЂРµРґРµР»РёР»Рё РЅРµ РІРµСЂРЅРѕ - Р·Р° 1 РјРёРЅСѓС‚Сѓ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ 0,05
-      //РїСЂРё РЅР°С‡Р°Р»СЊРЅРѕРј Р·Р°РїРѕР»РЅРµРЅРёРё Р±СѓС„РµСЂР° РїРµСЂРІС‹Р№ СЂР°Р· Р±СѓРґРµС‚ РґР°РІР°С‚СЊ РѕС€РёР±РєСѓ
+  if (flag) { //распознали сохраняем
+    if (((current_m3 - Gas[pos_1].m3 < 0) || (current_m3 - Gas[pos_1].m3 > 6)) && (Gas[pos_1].m3 != 0)) { //ошибка распознавания вне пределов
+      //если разница между предыдущем и текущим значением меньше нуля - текущее определили не верно
+      //если разница больше 0,06 - ошибка определения - текущее значение определили не верно - за 1 минуту не может быть больше 0,05
+      //при начальном заполнении буфера первый раз будет давать ошибку
 
-      V[V_error_recognition]++; //СѓРІРµР»РёС‡РёРј СЃС‡РµС‚С‡РёРє РѕС€РёР±РѕРє РЅРµРїСЂР°РІР»СЊРЅРѕ СЂР°СЃРїРѕР·РЅР°РЅРЅС‹С…
-      Serial.printf("Р—РЅР°С‡РµРЅРёРµ %d Рј3 РІРЅРµ РїСЂРµРґРµР»РѕРІ РЅР° РјРёРЅСѓС‚Рµ %d\n", current_m3, Gas[pos_1].minutes);
+      V[V_error_recognition]++; //увеличим счетчик ошибок неправльно распознанных
+      Serial.printf("Значение %d м3 вне пределов на минуте %d\n", current_m3, Gas[pos_1].minutes);
     }
-    else { //Р·РЅР°С‡РµРЅРёСЏ СЃРѕРІРїР°РґР°СЋС‚ РёР»Рё РЅРѕСЂРјР°Р»СЊРЅРѕ РёР·РјРµРЅРµРЅРЅС‹Рµ
-      V[V_error_recognition] = 0.0; //СЃР±СЂРѕСЃРёРј СЃС‡РµС‚С‡РёРє РѕС€РёР±РѕРє РЅРµРІРµСЂРЅРѕ СЂР°СЃРїРѕР·РЅР°РЅРЅС‹С…
+    else { //значения совпадают или нормально измененные
+      V[V_error_recognition] = 0.0; //сбросим счетчик ошибок неверно распознанных
     }
 
-    Serial.printf("РџСЂРµРґС‹РґСѓС‰РµРµ %d С‚РµРєСѓС‰РµРµ %d Рј3 РїРѕР·РёС†РёСЏ %d РјРёРЅСѓС‚ %d\tСЂР°Р·РЅРёС†Р°=%d\n", Gas[pos_1].m3, current_m3, position_m3, Gas[pos_1].minutes, current_m3 - Gas[pos_1].m3);
+    Serial.printf("Предыдущее %d текущее %d м3 позиция %d минут %d\tразница=%d\n", Gas[pos_1].m3, current_m3, position_m3, Gas[pos_1].minutes, current_m3 - Gas[pos_1].m3);
 
     if (Gas[pos_1].m3 == current_m3) {
-      //РµСЃР»Рё СЃРѕРІРїР°Р»Рѕ СЃ РїСЂРµРґС‹РґСѓС‰РёРј РїСЂРѕСЃС‚Рѕ СѓРІРµР»РёС‡РёРј РІСЂРµРјСЏ РїСЂРѕСЃС‚РѕСЏ РЅР° 1 РјРёРЅСѓС‚Сѓ РёР»Рё РЅР° РІСЂРµРјСЏ РїСЂРѕРїСѓС‰РµРЅРЅС‹С… РјРёРЅСѓС‚
-      //РµСЃР»Рё СЂР°РЅРµРµ Р±С‹Р»Рё РЅРµСЂР°СЃРїРѕР·РЅР°РЅРЅС‹Рµ РјРёРЅСѓС‚С‹, С‚Рѕ РїСЂРёР±Р°РІРёРј Рє РїСЂРѕРїСѓС‰РµРЅРЅРѕРјСѓ РІСЂРµРјРµРЅРё
-      //      Serial.printf("РЎРѕРІРїР°РґРµРЅРёРµ Р·РЅР°С‡РµРЅРёР№ current_m3 %.2f Рј3 СѓРІРµР»РёС‡РёРј РїСЂРµРґС‹РґСѓС‰РµРµ РІСЂРµРјСЏ Gas[pos_1].minutes=%d СЂР°Р·РЅРёС†Р° %f\n",current_m3, Gas[pos_1].minutes,current_m3 - Gas[pos_1].m3);
+      //если совпало с предыдущим просто увеличим время простоя на 1 минуту или на время пропущенных минут
+      //если ранее были нераспознанные минуты, то прибавим к пропущенному времени
+      //      Serial.printf("Совпадение значений current_m3 %.2f м3 увеличим предыдущее время Gas[pos_1].minutes=%d разница %f\n",current_m3, Gas[pos_1].minutes,current_m3 - Gas[pos_1].m3);
       Gas[pos_1].minutes += Gas[position_m3].minutes;
-      Gas[position_m3].minutes = 1; //РІРѕР·РѕР±РЅРѕРІРёРј РїРѕРґСЃС‡РµС‚ РІСЂРµРјРµРЅРё СЃРЅР°С‡Р°Р»Р° РґР»СЏ СЃР»РµРґСѓСЋС‰РµРіРѕ СЌР»РµРјРµРЅС‚Р°
+      Gas[position_m3].minutes = 1; //возобновим подсчет времени сначала для следующего элемента
       V[V_m3] = current_m3;
       V[V_m3_minutes] = Gas[pos_1].minutes;
     }
-    else { //РЅРµ СЃРѕРІРїР°Р»Рё Р·РЅР°С‡РµРЅРёСЏ - РµСЃС‚СЊ РёР·РјРµРЅРµРЅРёСЏ СЃРѕС…СЂР°РЅРёРј РЅРµ РѕР±СЂР°С‰Р°СЏ РІРЅРёРјР°РЅРёРµ РЅР° РїСЂРµРґРµР»С‹ Рё РїРµСЂРµС…РѕРґ Рє СЃР»РµРґСѓСЋС‰РµРјСѓ СЌР»РµРјРµРЅС‚Сѓ
+    else { //не совпали значения - есть изменения сохраним не обращая внимание на пределы и переход к следующему элементу
       Gas[position_m3].m3 = current_m3;
       V[V_m3] = current_m3;
       V[V_m3_minutes] = Gas[position_m3].minutes;
 
-      position_m3 = (position_m3 + 1) & (size_m3 - 1); //РїРµСЂРµС…РѕРґ Рє СЃР»РµРґСѓСЋС‰РµРјСѓ СЌР»РµРјРµРЅС‚Сѓ СЃ СѓС‡РµС‚РѕРј РєРѕРЅС†Р° Р±СѓС„С„РµСЂР°;
+      position_m3 = (position_m3 + 1) & (size_m3 - 1); //переход к следующему элементу с учетом конца буффера;
     }
 
-    Gas[position_m3].minutes = 1; //РїРѕРґСЃС‡РµС‚ РІСЂРµРјРµРЅРё СЃРЅР°С‡Р°Р»Р° РґР»СЏ С‚РµРєСѓС‰РµРіРѕ СЌР»РµРјРµРЅС‚Р°
+    Gas[position_m3].minutes = 1; //подсчет времени сначала для текущего элемента
     Gas[position_m3].m3 = 0;
-  } //СЂР°СЃРїРѕР·РЅР°Р»Рё СЃРѕС…СЂР°РЅСЏРµРј
+  } //распознали сохраняем
 
-  pos_1 = (position_m3 - 1) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё РјРёРЅСѓСЃ 1 - РїРµРґС‹РґСѓС‰РµРµ Р·РЅР°С‡РµРЅРµРµ
-  uint16_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё РјРёРЅСѓСЃ 2
+  pos_1 = (position_m3 - 1) & (size_m3 - 1); //позиция в буфере места записи минус 1 - педыдущее значенее
+  uint16_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //позиция в буфере места записи минус 2
 
-  if (Gas[pos_2].minutes != 0) { //РµСЃР»Рё СѓР¶Рµ СЃРѕС…СЂР°РЅРµРЅРѕ РЅРµ РјРµРЅРµРµ 2-С… СЌР»РµРјРµРЅС‚РѕРІ
+  if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
     Serial.printf("Gas[pos_2].m3= %d Gas[pos_1].m3= %d minutes=%d difference_m3=%d position-1=%d position-2=%d\n",
                   Gas[pos_2].m3, Gas[pos_1].m3, Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / Gas[pos_1].minutes, pos_1, pos_2);
   }
@@ -441,43 +427,43 @@ void m3_calculate() {
 
 //---------------------------------------------------- print_m3
 void print_m3() {
-  //РІС‹РІРµСЃС‚Рё РЅР° РјРѕРЅРёС‚РѕСЂ РЅР°РєРѕРїР»РµРЅРЅС‹Рµ СЂРµР·СѓР»СЊС‚Р°С‚С‹ m3
+  //вывести на монитор накопленные результаты m3
   time_t now;
-  uint32_t all_minutes = 0; //РґР»СЏ РїРѕРґСЃС‡РµС‚Р° РІСЂРµРјРµРЅРё СЃ РЅР°С‡Р°Р»Р° РѕС‚СЃС‡РµС‚Р°
+  uint32_t all_minutes = 0; //для подсчета времени с начала отсчета
 
-  uint16_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё РјРёРЅСѓСЃ 1 - РїРµРґС‹РґСѓС‰РµРµ Р·РЅР°С‡РµРЅРµРµ
+  uint16_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //позиция в буфере места записи минус 1 - педыдущее значенее
 
-  if (Gas[pos_1].minutes == 0) return; //РЅРµ РІС‹РІРѕРґРёС‚СЊ РµСЃР»Рё РЅР°С‡Р°Р»Рѕ - РЅРµС‚ РїСЂРµРґС‹РґСѓС‰РµРіРѕ Р·РЅР°С‡РµРЅРёСЏ
+  if (Gas[pos_1].minutes == 0) return; //не выводить если начало - нет предыдущего значения
   Serial.printf("i\tm3*100\tminutes\t\tmax number=%d\n", position_m3);
 
   for (uint32_t i = 0; i < size_m3; i++) {
-    uint16_t pos = (position_m3 + i) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РїРѕСЃР»Рµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё
-    if (Gas[pos].m3 == 0) continue; //РµСЃР»Рё РѕР±РЅР°СЂСѓР¶РёР»Рё РєРѕРЅРµС† Р±СѓС„РµСЂР° РїСЂРѕРґРѕР»Р¶РёРј
+    uint16_t pos = (position_m3 + i) & (size_m3 - 1); //позиция в буфере после места записи
+    if (Gas[pos].m3 == 0) continue; //если обнаружили конец буфера продолжим
     //     Serial.printf("i=%d pos=%d position_m3+i=%d Gas[pos].minutes=%d Gas[pos].m3=%.2f\n",i, pos , position_m3+i,Gas[pos].minutes,Gas[pos].m3);
-    all_minutes += Gas[pos].minutes;   //РїРѕРґСЃС‡РµС‚ РѕР±С‰РµРіРѕ РІСЂРµРјРµРЅРё СЃСѓРјРјРёСЂСѓРµРј РІСЃРµ
+    all_minutes += Gas[pos].minutes;   //подсчет общего времени суммируем все
     Serial.printf("%d\t%d\t%d\n", pos, Gas[pos].m3, Gas[pos].minutes);
   }
-  V[V_SH_M3] = 0; //РІС‹РІРµРґРµРј РѕРґРёРЅ СЂР°Р·
+  V[V_SH_M3] = 0; //выведем один раз
 
-  struct tm timeinfo1; //СЃС‚СЂСѓРєС‚СѓСЂР° РІСЂРµРјРµРЅРё Р·Р°РїРёСЃРё РєРѕР»СЊС†РµРІРѕРіРѕ Р±СѓС„РµСЂР°
+  struct tm timeinfo1; //структура времени записи кольцевого буфера
 
-  if (!getLocalTime(&timeinfo1)) { //РїРѕР»СѓС‡РёРј РІСЂРµРјСЏ Р·Р°РїРёСЃРё СЃРѕС…СЂР°РЅРµРЅРёСЏ Рј3
+  if (!getLocalTime(&timeinfo1)) { //получим время записи сохранения м3
     Serial.printf("Failed to obtain time\n");
   }
-  Serial.printf("\nРЎРѕР·РґР°РЅРѕ  %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
+  Serial.printf("\nСоздано  %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
                 timeinfo1.tm_hour, timeinfo1.tm_min, timeinfo1.tm_sec);
   time(&now);
-  now -= all_minutes * 60; //РѕС‚РЅРёРјРёРј РїСЂРѕС€РµРґС€РёРµ РјРёРЅСѓС‚С‹ Рѕ РїРѕР»СѓС‡РёРј РЅР°С‡Р°Р»Рѕ РѕС‚СЃС‡РµС‚Р°
+  now -= all_minutes * 60; //отнимим прошедшие минуты о получим начало отсчета
   localtime_r(&now, &timeinfo1);
-  Serial.printf("РќР°С‡Р°Р»Рѕ Р·Р°РїРёСЃРё %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
+  Serial.printf("Начало записи %02d.%02d.%4d %02d:%02d:%02d\n", timeinfo1.tm_mday, timeinfo1.tm_mon + 1, timeinfo1.tm_year + 1900,
                 timeinfo1.tm_hour, timeinfo1.tm_min, timeinfo1.tm_sec);
 
-  Serial.printf("\nРЎС‚Р°С‚РёСЃС‚РёРєР° РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ СЌС‚Р°Р»РѕРЅРѕРІ:\n");
+  Serial.printf("\nСтатистика использования эталонов:\n");
   for(uint8_t dig = 0; dig < number_letter; dig++){
-    Serial.printf("РџРѕР·РёС†РёСЏ РІ С€РєР°Р»Рµ %d РѕРїРµСЂРµРґРµР»РµРЅРѕ РєР°Рє С†РёС„СЂР° %d\n",dig,Hemming[dig].result);
+    Serial.printf("Позиция в шкале %d опеределено как цифра %d\n",dig,Hemming[dig].result);
     for(uint8_t i = 0; i < number_of_samples; i++){
       if(used_samples[i][dig] != 0)
-        Serial.printf("Р¦РёС„СЂР° %d\tРЅРѕРјРµСЂ СЌС‚Р°Р»РѕРЅР° %02d\tРѕРїРѕР·РЅР°РЅ %d СЂР°Р·\n",sample_equation[i],i,used_samples[i][dig]);
+        Serial.printf("Цифра %d\tномер эталона %02d\tопознан %d раз\n",sample_equation[i],i,used_samples[i][dig]);
     }
   }
   Serial.printf("\n");
@@ -501,25 +487,25 @@ void printBinary(T value, String s) {
 
 //---------------------------------------------------- britnes_digital
 uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show, frame *read_window) {
-  //СЂР°СЃС‡РµС‚ СЃСЂРµРґРЅРµР№ СЏСЂРєРѕСЃС‚Рё РїРёРєСЃРµР»РµР№ РґР»СЏ РєР°Р¶РґРѕР№ С†РёС„СЂС‹ РїРѕСЃР»Рµ С‚РѕРіРѕ РєР°Рє РѕРїСЂРµРґРµР»РёР»Рё РёС… РјРµСЃС‚Рѕ
-  for (uint8_t dig = 0; dig < number_letter; dig++) { //РїРѕРѕС‡РµСЂРµРґРЅРѕ РѕР±СЂР°Р±Р°С‚С‹РІР°РµРј РєР°Р¶РґРѕРµ Р·РЅР°РєРѕРјРµСЃС‚Рѕ РѕС‚РµР»СЊРЅРѕ
+  //расчет средней яркости пикселей для каждой цифры после того как определили их место
+  for (uint8_t dig = 0; dig < number_letter; dig++) { //поочередно обрабатываем каждое знакоместо отельно
     float britnes  = 0;
 
     uint16_t w_l = width_letter;
-    int x1 = max_letter_x[dig] - width_letter / 2; //РґР»СЏ РїРµСЂРІРѕР№ С†РёС„СЂС‹ СЂР°Р·РјРµСЂ РјРѕР¶РµС‚ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ СѓСЃС‚Р°РЅРѕРІР»РµРЅРЅРѕР№ С€РёСЂРёРЅС‹
+    int x1 = max_letter_x[dig] - width_letter / 2; //для первой цифры размер может быть меньше установленной ширины
     if (x1 < 0) {
-      w_l += x1; //x1 РёРјРµРµС‚ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ РїРѕСЌС‚РѕРјСѓ СЃСѓРјРјРёСЂСѓРµРј
+      w_l += x1; //x1 имеет отрицательное значенее поэтому суммируем
       if (show) Serial.printf("x1=%d max_letter_x[dig]=%d w_l=%d\n", x1, max_letter_x[dig], w_l);
       x1 = 0;
     }
 
-    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚РѕР»Р±С†Сѓ РІ РїСЂРµРґРµР»Р°С… РІС‹СЃРѕС‚С‹ Р±СѓРєРІС‹
-      for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚СЂРѕРєРµ РІ РїСЂРµРґРµР»Р°С… С€РёСЂРёРЅС‹ РѕРґРЅРѕР№ С†РёС„СЂС‹
+    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //перебор по столбцу в пределах высоты буквы
+      for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //перебор по строке в пределах ширины одной цифры
         uint32_t i = (y * fr_buf->width + x);
-        britnes += fr_buf->buf[i]; //СЃСѓРјРјРёСЂСѓРµРј РІСЃРµ Р·РЅР°С‡РµРЅРёСЏ
+        britnes += fr_buf->buf[i]; //суммируем все значения
       }
     }
-    Hemming[dig].britnes_digital = (int)(britnes / (w_l * (read_window->Y2 - read_window->Y1))); //РґР»СЏ РїРµСЂРІРѕР№ С†РёС„СЂС‹ С€РёСЂРёРЅР° РјРѕР¶РµС‚ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ
+    Hemming[dig].britnes_digital = (int)(britnes / (w_l * (read_window->Y2 - read_window->Y1))); //для первой цифры ширина может быть меньше
     if (show)
       Serial.printf("dig=%d, avg. britnes=%d, pixel_level=%d\n", dig, (int)(britnes / (width_letter * (read_window->Y2 - read_window->Y1))), pixel_level);
   }
@@ -529,20 +515,20 @@ uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show, frame *read_window)
 
 //---------------------------------------------------- find_middle_level_image
 uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
-  //РЅР°Р№С‚Рё СѓСЂРѕРІРµРЅСЊ СЏСЂРєРѕСЃС‚Рё РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРѕ РћС‚С†Сѓ
+  //найти уровень яркости изображения по Отцу
 
   float av = 0;
   uint32_t f_size = fr_buf->width * fr_buf->height;
 
-  //РЅР°Р№С‚Рё СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ РїРёРєСЃРµР»РµР№ РѕРєРЅРѕ С‚Р°Р±Р»Рѕ - Р·Р°СЃРІРµС‡РµРЅРѕ
-  // РџРѕСЃС‡РёС‚Р°РµРј РјРёРЅРёРјР°Р»СЊРЅСѓСЋ Рё РјР°РєСЃРёРјР°Р»СЊРЅСѓСЋ СЏСЂРєРѕСЃС‚СЊ РІСЃРµС… РїРёРєСЃРµР»РµР№
+  //найти средний уровень пикселей окно табло - засвечено
+  // Посчитаем минимальную и максимальную яркость всех пикселей
   for (uint32_t i = 0; i < f_size; i++) {
     av += fr_buf->buf[i];
   }
   av = av / f_size;
 
-  // Р“РёСЃС‚РѕРіСЂР°РјРјР° Р±СѓРґРµС‚ РѕРіСЂР°РЅРёС‡РµРЅР° СЃРЅРёР·Сѓ Рё СЃРІРµСЂС…Сѓ Р·РЅР°С‡РµРЅРёСЏРјРё min Рё max,
-  // РїРѕСЌС‚РѕРјСѓ РЅРµС‚ СЃРјС‹СЃР»Р° СЃРѕР·РґР°РІР°С‚СЊ РіРёСЃС‚РѕРіСЂР°РјРјСѓ СЂР°Р·РјРµСЂРѕРј 256 Р±РёРЅРѕРІ
+  // Гистограмма будет ограничена снизу и сверху значениями min и max,
+  // поэтому нет смысла создавать гистограмму размером 256 бинов
   int histSize = fr_buf->max - fr_buf->min + 1;
 
   int *hist = (int *) heap_caps_calloc(histSize * sizeof(int), 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -551,49 +537,49 @@ uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
     return 0;
   }
 
-  // Р—Р°РїРѕР»РЅРёРј РіРёСЃС‚РѕРіСЂР°РјРјСѓ РЅСѓР»СЏРјРё
+  // Заполним гистограмму нулями
   for (int t = 0; t < histSize; t++)
     hist[t] = 0;
 
-  // Р РІС‹С‡РёСЃР»РёРј РІС‹СЃРѕС‚Сѓ Р±РёРЅРѕРІ
+  // И вычислим высоту бинов
   for (int i = 0; i < f_size; i++)
     hist[fr_buf->buf[i] - fr_buf->min]++;
 
-  // Р’РІРµРґРµРј РґРІР° РІСЃРїРѕРјРѕРіР°С‚РµР»СЊРЅС‹С… С‡РёСЃР»Р°:
-  int m = 0; // m - СЃСѓРјРјР° РІС‹СЃРѕС‚ РІСЃРµС… Р±РёРЅРѕРІ, РґРѕРјРЅРѕР¶РµРЅРЅС‹С… РЅР° РїРѕР»РѕР¶РµРЅРёРµ РёС… СЃРµСЂРµРґРёРЅС‹
-  int n = 0; // n - СЃСѓРјРјР° РІС‹СЃРѕС‚ РІСЃРµС… Р±РёРЅРѕРІ
+  // Введем два вспомогательных числа:
+  int m = 0; // m - сумма высот всех бинов, домноженных на положение их середины
+  int n = 0; // n - сумма высот всех бинов
   for (int t = 0; t <= fr_buf->max - fr_buf->min; t++)
   {
     m += t * hist[t];
     n += hist[t];
   }
 
-  float maxSigma = -1; // РњР°РєСЃРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ РјРµР¶РєР»Р°СЃСЃРѕРІРѕР№ РґРёСЃРїРµСЂСЃРёРё
-  int threshold = 0; // РџРѕСЂРѕРі, СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰РёР№ maxSigma
+  float maxSigma = -1; // Максимальное значение межклассовой дисперсии
+  int threshold = 0; // Порог, соответствующий maxSigma
 
-  int alpha1 = 0; // РЎСѓРјРјР° РІС‹СЃРѕС‚ РІСЃРµС… Р±РёРЅРѕРІ РґР»СЏ РєР»Р°СЃСЃР° 1
-  int beta1 = 0; // РЎСѓРјРјР° РІС‹СЃРѕС‚ РІСЃРµС… Р±РёРЅРѕРІ РґР»СЏ РєР»Р°СЃСЃР° 1, РґРѕРјРЅРѕР¶РµРЅРЅС‹С… РЅР° РїРѕР»РѕР¶РµРЅРёРµ РёС… СЃРµСЂРµРґРёРЅС‹
+  int alpha1 = 0; // Сумма высот всех бинов для класса 1
+  int beta1 = 0; // Сумма высот всех бинов для класса 1, домноженных на положение их середины
 
-  // РџРµСЂРµРјРµРЅРЅР°СЏ alpha2 РЅРµ РЅСѓР¶РЅР°, С‚.Рє. РѕРЅР° СЂР°РІРЅР° m - alpha1
-  // РџРµСЂРµРјРµРЅРЅР°СЏ beta2 РЅРµ РЅСѓР¶РЅР°, С‚.Рє. РѕРЅР° СЂР°РІРЅР° n - alpha1
+  // Переменная alpha2 не нужна, т.к. она равна m - alpha1
+  // Переменная beta2 не нужна, т.к. она равна n - alpha1
 
-  // t РїСЂРѕР±РµРіР°РµС‚СЃСЏ РїРѕ РІСЃРµРј РІРѕР·РјРѕР¶РЅС‹Рј Р·РЅР°С‡РµРЅРёСЏРј РїРѕСЂРѕРіР°
+  // t пробегается по всем возможным значениям порога
   for (int t = 0; t < fr_buf->max - fr_buf->min; t++)
   {
     alpha1 += t * hist[t];
     beta1 += hist[t];
 
-    // РЎС‡РёС‚Р°РµРј РІРµСЂРѕСЏС‚РЅРѕСЃС‚СЊ РєР»Р°СЃСЃР° 1.
+    // Считаем вероятность класса 1.
     float w1 = (float)beta1 / n;
-    // РќРµС‚СЂСѓРґРЅРѕ РґРѕРіР°РґР°С‚СЊСЃСЏ, С‡С‚Рѕ w2 С‚РѕР¶Рµ РЅРµ РЅСѓР¶РЅР°, С‚.Рє. РѕРЅР° СЂР°РІРЅР° 1 - w1
+    // Нетрудно догадаться, что w2 тоже не нужна, т.к. она равна 1 - w1
 
-    // a = a1 - a2, РіРґРµ a1, a2 - СЃСЂРµРґРЅРёРµ Р°СЂРёС„РјРµС‚РёС‡РµСЃРєРёРµ РґР»СЏ РєР»Р°СЃСЃРѕРІ 1 Рё 2
+    // a = a1 - a2, где a1, a2 - средние арифметические для классов 1 и 2
     float a = (float)alpha1 / beta1 - (float)(m - alpha1) / (n - beta1);
 
-    // РќР°РєРѕРЅРµС†, СЃС‡РёС‚Р°РµРј sigma
+    // Наконец, считаем sigma
     float sigma = w1 * (1 - w1) * a * a;
 
-    // Р•СЃР»Рё sigma Р±РѕР»СЊС€Рµ С‚РµРєСѓС‰РµР№ РјР°РєСЃРёРјР°Р»СЊРЅРѕР№, С‚Рѕ РѕР±РЅРѕРІР»СЏРµРј maxSigma Рё РїРѕСЂРѕРі
+    // Если sigma больше текущей максимальной, то обновляем maxSigma и порог
     if (sigma > maxSigma)
     {
       maxSigma = sigma;
@@ -601,14 +587,14 @@ uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
     }
   }
 
-  // РќРµ Р·Р°Р±СѓРґРµРј, С‡С‚Рѕ РїРѕСЂРѕРі РѕС‚СЃС‡РёС‚С‹РІР°Р»СЃСЏ РѕС‚ min, Р° РЅРµ РѕС‚ РЅСѓР»СЏ
+  // Не забудем, что порог отсчитывался от min, а не от нуля
   threshold += fr_buf->min;
 
-  heap_caps_free(hist); //РѕСЃРІРѕР±РѕРґРёС‚СЊ Р±СѓС„РµСЂ
+  heap_caps_free(hist); //освободить буфер
 
   if (show)
     Serial.printf("min =%d max=%d level average=%.0f threshold= %d\n", fr_buf->min, fr_buf->max, av, threshold);
-  // Р’СЃРµ, РїРѕСЂРѕРі РїРѕСЃС‡РёС‚Р°РЅ, РІРѕР·РІСЂР°С‰Р°РµРј РµРіРѕ РЅР°РІРµСЂС… :)
+  // Все, порог посчитан, возвращаем его наверх :)
   return (uint16_t)(threshold);
 }
 //---------------------------------------------------- find_middle_level_image
@@ -616,27 +602,27 @@ uint16_t find_middle_level_image(HDR *fr_buf, bool show) {
 
 //---------------------------------------------------- find_digits_y
 esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read_window) {
-  //fr_buf Р±СѓС„РµСЂ СЃ РёР·РѕР±СЂР°Р¶РµРЅРёРµРј С„РѕСЂРјР°С‚Р° uint16_t
-  //mid_level СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ СЏСЂРєРѕСЃС‚Рё РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
-  //add_mid_level РїРѕРІС‹С€РµРЅРёРµ СѓСЂРѕРІРЅСЏ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ Р·Р°СЃРІРµС‚РєРё РїСЂРё Р°РЅР°Р»РёР·Рµ
-  //show РІС‹РІРµСЃС‚Рё РёРЅС„РѕСЂРјР°С†РёСЋ РЅР° СЌРєСЂР°РЅ
+  //fr_buf буфер с изображением формата uint16_t
+  //mid_level средний уровень яркости изображения
+  //add_mid_level повышение уровня для устранения засветки при анализе
+  //show вывести информацию на экран
 
   read_window->Y2 = 0;
   read_window->Y1 = 0;
 
   float av = 0;
-  char buf[50]; //Р±СѓС„РµСЂ РґР»СЏ РїРµСЂРµРІРѕРґР° Р·РЅР°С‡РµРЅРёР№ СЃС‚СЂРѕРєСѓ Рё РїРµС‡Р°С‚Рё РЅР° РґРёСЃРїР»РµРё
+  char buf[50]; //буфер для перевода значений строку и печати на дисплеи
 
-  //РїРѕРёСЃРє СЃСЂРµРґРЅРµРіРѕ СѓСЂРѕРІРЅСЏ
-  for (uint8_t y = 0; y < fr_buf->height; y++) { 	// С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
-    for (uint16_t x = 0; x < fr_buf->width; x++) { 	// РѕРіСЂР°РЅРёС‡РёРј С€РёСЂРёРЅРѕР№ СЌРєСЂР°РЅР°, Р° РЅРµ РІСЃРµРј РёР·РѕР±СЂР°Р¶РµРЅРёРµРј F_WIDTH
+  //поиск среднего уровня
+  for (uint8_t y = 0; y < fr_buf->height; y++) { 	// только в пределах экрана по высоте 10-100 строки
+    for (uint16_t x = 0; x < fr_buf->width; x++) { 	// ограничим шириной экрана, а не всем изображением F_WIDTH
       uint32_t i = (y * fr_buf->width + x);
       if (fr_buf->buf[i] > mid_level) av++;
     }
   }
   av = (uint16_t) (av / (fr_buf->height));			// average pixel row summary brightness over mid_level level
 
-  for (uint8_t y = 0; y < fr_buf->height; y++) { 	// С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
+  for (uint8_t y = 0; y < fr_buf->height; y++) { 	// только в пределах экрана по высоте 10-100 строки
     float av1 = 0;
     for (uint16_t x = 0; x < fr_buf->width; x++) {
       uint32_t i = (y * fr_buf->width + x);
@@ -653,7 +639,7 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
     }
   }
 
-  for (uint8_t y = fr_buf->height; y > 0 ; y--) { 	// С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
+  for (uint8_t y = fr_buf->height; y > 0 ; y--) { 	// только в пределах экрана по высоте 10-100 строки
     float av1 = 0;
     for (uint16_t x = 0; x < fr_buf->width; x++) {
       uint32_t i = (y * fr_buf->width + x);
@@ -690,19 +676,19 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
 
 
 
-  //РІС‹РІРѕРґ РЅР° РґРёСЃРїР»РµР№ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЃРѕС…СЂР°РЅРµРЅРЅС‹С… Р·РЅР°С‡РµРЅРёР№
+  //вывод на дисплей результатов сохраненных значений
   //tft.setFont(Terminal6x8); //10 pixel
-  //tft.fillRectangle (0, info_time - 2, tft.maxX(), info_time + 10, COLOR_BLACK); //РѕС‡РёСЃС‚РёС‚СЊ С‡Р°СЃС‚СЊ СЌРєСЂР°РЅР°
+  //tft.fillRectangle (0, info_time - 2, tft.maxX(), info_time + 10, COLOR_BLACK); //очистить часть экрана
 
-  uint8_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РїРѕСЃР»Рµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё -1
-  uint8_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //РїРѕР·РёС†РёСЏ РІ Р±СѓС„РµСЂРµ РїРѕСЃР»Рµ РјРµСЃС‚Р° Р·Р°РїРёСЃРё -2
+  uint8_t pos_1 = (position_m3 - 1) & (size_m3 - 1); //позиция в буфере после места записи -1
+  uint8_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //позиция в буфере после места записи -2
 
-  if (Gas[pos_2].minutes != 0) { //РµСЃР»Рё СѓР¶Рµ СЃРѕС…СЂР°РЅРµРЅРѕ РЅРµ РјРµРЅРµРµ 2-С… СЌР»РµРјРµРЅС‚РѕРІ
+  if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
     sprintf(buf, "%4d mins %4.2f m3/m\0", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
     //tft.drawText(0, info_time, buf, COLOR_WHITE);
 
     V[V_m3_m] = (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0);
-    if (V[V_m3_m] > 1) V[V_m3_m] = 0; //Р·Р° 1 РјРёРЅСѓС‚Сѓ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ 1 Рј3
+    if (V[V_m3_m] > 1) V[V_m3_m] = 0; //за 1 минуту не может быть больше 1 м3
   }
   else {
     sprintf(buf, "%4d mins %4.2f m3\0", Gas[pos_1].minutes, Gas[pos_1].m3 / 100.0);
@@ -720,11 +706,11 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
     //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_YELLOW);
   }
 
-  uint16_t x_width_min = fr_buf->width; //С€РёСЂРёРЅР° СЌРєСЂР°РЅР°
-  uint16_t x_width_max = 0; //РјРёРЅРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ
+  uint16_t x_width_min = fr_buf->width; //ширина экрана
+  uint16_t x_width_max = 0; //минимальное значенее
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
-    //РїРѕРёСЃРє РјР°РєСЃРёРјР°Р»СЊРЅРѕР№ Рё РјРёРЅРёРјР°Р»СЊРЅРѕР№ С€РёСЂРёРЅС‹ РѕРїСЂРµРґРµР»РЅРЅРѕР№ С†РёС„СЂС‹
+    //поиск максимальной и минимальной ширины определнной цифры
     if (x_width_min > Hemming[dig].x_width) x_width_min = Hemming[dig].x_width;
     if (x_width_max < Hemming[dig].x_width) x_width_max = Hemming[dig].x_width;
   }
@@ -737,31 +723,26 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
   else
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-
   sprintf(buf, " X_W =");
   tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-
   sprintf(buf, "%2d", x_width_min);
-  if ((x_width_min < 3) || (x_width_min > width_letter)) //С€РёСЂРёРЅР° РЅРµ РґРѕР»Р¶РЅР° Р±С‹С‚СЊ РјРµРЅСЊС€Рµ 3 РїРёРєСЃРµР»РµР№
+  if ((x_width_min < 3) || (x_width_min > width_letter)) //ширина не должна быть меньше 3 пикселей
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
   else
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-
   sprintf(buf, "-%2d ", x_width_max);
-  if ((x_width_max > width_letter) || (x_width_max <= x_width_min)) //С€РёСЂРёРЅР° РЅРµ РґРѕР»Р¶РЅР° Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ С€РёСЂРёРЅС‹ Р±СѓРєРІС‹
+  if ((x_width_max > width_letter) || (x_width_max <= x_width_min)) //ширина не должна быть больше ширины буквы
     tft.drawText(next_x, info_first, buf, COLOR_YELLOW);
   else
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-
   sprintf(buf, " Y_o=%.0f  %.0f", V[V_offset_y_test], V[V_offset_y_current]);
   tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   next_x += tft.getTextWidth(buf);
-
   sprintf(buf, " %.0f", V[V_Sum_min_Hemming_current]);
-  if (V[V_Sum_min_Hemming] < 160) //РЎСѓРјРјР°СЂРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ РҐРµРјРјРёРЅРіР° РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ 150
+  if (V[V_Sum_min_Hemming] < 160) //Суммарное значение Хемминга должно быть меньше 150
     tft.drawText(next_x, info_first, buf, COLOR_GREEN);
   else if (V[V_Sum_min_Hemming] > 250)
     tft.drawText(next_x, info_first, buf, COLOR_RED);
@@ -781,19 +762,19 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
 
 //---------------------------------------------------- find_digits_x
 esp_err_t find_digits_x (HDR *fr_buf, uint16_t mid_level, bool show, frame *read_window) {
-  //fr_buf Р±СѓС„РµСЂ СЃ РёР·РѕР±СЂР°Р¶РµРЅРёРµРј С„РѕСЂРјР°С‚Р° uint16_t
-  //mid_level СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ СЏСЂРєРѕСЃС‚Рё РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
-  //add_mid_level РїРѕРІС‹С€РµРЅРёРµ СѓСЂРѕРІРЅСЏ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ Р·Р°СЃРІРµС‚РєРё РїСЂРё Р°РЅР°Р»РёР·Рµ
-  //show РІС‹РІРµСЃС‚Рё РёРЅС„РѕСЂРјР°С†РёСЋ РЅР° СЌРєСЂР°РЅ
+  //fr_buf буфер с изображением формата uint16_t
+  //mid_level средний уровень яркости изображения
+  //add_mid_level повышение уровня для устранения засветки при анализе
+  //show вывести информацию на экран
 
   read_window->X2 = 0;
   read_window->X1 = 0;
 
   float av = 0;
 
-  //РїРѕРёСЃРє СЃСЂРµРґРЅРµРіРѕ СѓСЂРѕРІРЅСЏ
-  for (uint16_t x = 0; x < fr_buf->width; x++) { 	//РѕРіСЂР°РЅРёС‡РёРј С€РёСЂРёРЅРѕР№ СЌРєСЂР°РЅР°, Р° РЅРµ РІСЃРµРј РёР·РѕР±СЂР°Р¶РµРЅРёРµРј F_WIDTH
-	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
+  //поиск среднего уровня
+  for (uint16_t x = 0; x < fr_buf->width; x++) { 	//ограничим шириной экрана, а не всем изображением F_WIDTH
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
 		  uint32_t i = (y * fr_buf->width + x);
 		  if (fr_buf->buf[i] > mid_level) av++;
 	  }
@@ -805,7 +786,7 @@ esp_err_t find_digits_x (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
   float av1 = 0.0;
   do{
 	  av1 = 0.0;
-	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
 		  uint32_t i = (y * fr_buf->width + x);
 		  if (fr_buf->buf[i] > mid_level) av1++;
 	  }
@@ -818,7 +799,7 @@ esp_err_t find_digits_x (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
   x = fr_buf->width;
   do{
 	  av1 = 0.0;
-	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… СЌРєСЂР°РЅР° РїРѕ РІС‹СЃРѕС‚Рµ 10-100 СЃС‚СЂРѕРєРё
+	  for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { 	//только в пределах экрана по высоте 10-100 строки
 		  uint32_t i = (y * fr_buf->width + x);
 		  if (fr_buf->buf[i] > mid_level) av1++;
 	  }
@@ -841,21 +822,21 @@ esp_err_t find_digits_x (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
 
 //---------------------------------------------------- find_max_digital_X
 esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold,  bool show, frame *read_window) {
-  //fr_buf Р±СѓС„РµСЂ СЃ РёР·РѕР±СЂР°Р¶РµРЅРёРµРј С„РѕСЂРјР°С‚Р° uint16_t
-  //mid_level СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
-  //add_mid_level РїРѕРІС‹С€РµРЅРёРµ СЃР»РµРґСѓСЋС‰РµРіРѕ СѓСЂРѕРІРЅСЏ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ Р·Р°СЃРІРµС‚РєРё РїСЂРё РѕС‚РѕР±СЂР°Р¶РµРЅРёРё
-  //show РІС‹РІРµСЃС‚Рё РёРЅС„РѕСЂРјР°С†РёСЋ РЅР° СЌРєСЂР°РЅ
+  //fr_buf буфер с изображением формата uint16_t
+  //mid_level средний уровень изображения
+  //add_mid_level повышение следующего уровня для устранения засветки при отображении
+  //show вывести информацию на экран
 
-  //РїРѕРёСЃРє РіСЂР°РЅРёС† С†РёС„СЂ РІ РЅР°Р№РґРµРЅРЅРѕР№ СЃС‚СЂРѕРєРµ РїРѕ X
-  uint16_t letter[fr_buf->width]; //РјР°СЃСЃРёРІ РґР»СЏ РїРѕРёСЃРєР° РјР°РєСЃРёРјСѓРјР° РїРѕ РѕСЃРё РҐ
+  //поиск границ цифр в найденной строке по X
+  uint16_t letter[fr_buf->width]; //массив для поиска максимума по оси Х
   uint16_t letter_min = 0xFFFF;
   uint16_t letter_max = 0;
   uint16_t letter_trs = 0;
 
-  //СЃС‚СЂРѕРёРј РіРёСЃС‚РѕРіСЂР°РјРјСѓ РїРѕРґСЃС‡РµС‚ РєРѕР»РёС‡РµСЃС‚РІР° РµРґРёРЅРёС† РїРѕ СЃС‚РѕР»Р±С†Сѓ
-  for (uint16_t x = read_window->X1; x < read_window->X2; x++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚СЂРѕРєРµ
-    letter[x] = 0; //РѕР±РЅСѓР»СЏРµРј РЅР°С‡Р°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ
-    for (uint16_t y = read_window->Y1; y < read_window->Y2 - 2; y++) { //РёС‰РµРј С‚РѕР»СЊРєРѕ РІ РїСЂРµРґРµР»Р°С… РѕР±РЅР°СЂСѓР¶РµРЅРЅС‹С… С†РёС„СЂ
+  //строим гистограмму подсчет количества единиц по столбцу
+  for (uint16_t x = read_window->X1; x < read_window->X2; x++) { //перебор по строке
+    letter[x] = 0; //обнуляем начальное значение
+    for (uint16_t y = read_window->Y1; y < read_window->Y2 - 2; y++) { //ищем только в пределах обнаруженных цифр
       uint16_t i = (y * fr_buf->width + x);
       if (fr_buf->buf[i] > mid_level) {
         letter[x]++;
@@ -869,26 +850,26 @@ esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold, 
   letter_trs = letter_min + (letter_max - letter_min)*treshold/100;
   if(show) Serial.printf("[find_max_digital_X] letter_min=%d, letter_trs=%d, letter_max=%d\n",letter_min, letter_trs, letter_max);
 
-  //СѓС‚РѕС‡РЅРёРј С†РµРЅС‚СЂС‹ С†РёС„СЂ РїРѕ РіРёСЃС‚РѕРіСЂР°РјРјРµ
-  uint16_t 	x1 = 0, x2 = 0; //РЅР°С‡Р°Р»Рѕ Рё РєРѕРЅРµС† С†РёС„СЂС‹
-  uint16_t  dig = 0; //РЅРѕРјРµСЂ РЅР°Р№РґРµРЅРЅРѕР№ С†РёС„СЂС‹ РѕС‚ 0 РґРѕ number_letter-1
+  //уточним центры цифр по гистограмме
+  uint16_t 	x1 = 0, x2 = 0; //начало и конец цифры
+  uint16_t  dig = 0; //номер найденной цифры от 0 до number_letter-1
 
-  for (uint16_t x = read_window->X1; x < read_window->X2; x++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚СЂРѕРєРµ
+  for (uint16_t x = read_window->X1; x < read_window->X2; x++) { //перебор по строке
     if (letter[x] > letter_trs) { //if pixel brightness is more than trs limit
-      if (x1 != 0) x2 = x; //РµСЃР»Рё Р±С‹Р»Рѕ РЅР°Р№РґРµРЅРѕ РЅР°С‡Р°Р»Рѕ СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РєРѕРЅРµС†
-      else x1 = x; //СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РЅР°С‡Р°Р»Рѕ
+      if (x1 != 0) x2 = x; //если было найдено начало установить конец
+      else x1 = x; //установить начало
     }
-    else { //РЅРµС‚ РїРёРєСЃРµР»РµР№
-      if (x1 != 0 && x2 != 0) { //РµСЃР»Рё Р±С‹Р»Рё СЂР°РЅРµРµ РѕРїСЂРµРґРµР»РµРЅС‹ РїСЂРµРґРµР»С‹ РїРѕРєР°Р·Р°С‚СЊ РіСЂР°РЅРёС†С‹
+    else { //нет пикселей
+      if (x1 != 0 && x2 != 0) { //если были ранее определены пределы показать границы
         if (show) Serial.printf("[find_max_digital_X] x1=%4d x2=%4d x_mid=%4d d_x=%d dig=%d\n", x1, x2, ((x2 - x1) >> 1) + x1, (x2 - x1), dig);
 
-        if (dig > number_letter - 1) { //eСЃР»Рё РЅР°Р№РґРµРЅРѕ Р±РѕР»СЊС€Рµ С‡РµРј С†РёС„СЂ РІ С€РєР°Р»Рµ 8 number_letter - 1
+        if (dig > number_letter - 1) { //eсли найдено больше чем цифр в шкале 8 number_letter - 1
           if (show) Serial.printf("[find_max_digital_X] Found more numbers than in the scale along the X axis!!! %d\n", dig);
           return ESP_OK;//ESP_FAIL;
         }
         max_letter_x[dig] = ((x2 - x1) >> 1) + x1;
 
-        Hemming[dig].x_width = (x2 - x1); //СЃРѕС…СЂР°РЅРёРј Р·РЅР°С‡РµРЅРµРµ С€РёСЂРёРЅС‹ Р±СѓРєРІС‹
+        Hemming[dig].x_width = (x2 - x1); //сохраним значенее ширины буквы
 
         if(Hemming[dig].x_width > 10){ // only is character width is plausible //TODO as parameter
         	Hemming[dig].x_width = (Hemming[dig].x_width < 20 ? 20 : Hemming[dig].x_width);		// TODO as parameter
@@ -896,7 +877,7 @@ esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold, 
         }
       }
 
-      //РѕР±РЅСѓР»РёРј Р·РЅР°С‡РµРЅРёРµ РґР»СЏ СЃР»РµРґСѓСЋС‰РµР№ С†РёС„СЂС‹
+      //обнулим значение для следующей цифры
       x1 = 0;
       x2 = 0;
     }
@@ -911,7 +892,7 @@ esp_err_t find_max_digital_X(HDR *fr_buf, uint16_t mid_level, uint8_t treshold, 
 
 
 //---------------------------------------------------- sum_one
-uint8_t sum_one(uint32_t d) { //СЃСѓРјРјРёСЂРѕРІР°РЅРёРµ РІСЃРµС… 1 РІ 32 Р±РёС‚РЅРѕРј С‡РёСЃР»Рµ
+uint8_t sum_one(uint32_t d) { //суммирование всех 1 в 32 битном числе
   uint8_t r = 0;
   for (uint8_t i = 0; i < 32; i++) {
     r += d & 0x1;
@@ -924,23 +905,23 @@ uint8_t sum_one(uint32_t d) { //СЃСѓРјРјРёСЂРѕРІР°РЅРёРµ РІСЃРµС… 1 РІ 32 Р±РёС‚
 
 //---------------------------------------------------- compare
 uint8_t compare(uint8_t y, uint8_t samp_dig, uint8_t dig, int X_shift, int Y_shift, bool show) {
-  //y РїРѕР»РѕР¶РµРЅРµРµ РїРѕ РѕСЃРё Y
-  //samp_dig РЅРѕРјРµСЂ СЌС‚Р°Р»РѕРЅР°
-  //dig - РєР°РєСѓСЋ С†РёС„СЂСѓ РѕР±СЂР°Р±Р°С‚С‹РІР°РµРј
-  //X_shift СЃРґРІРёРі РїРѕ РѕСЃРё +/- РҐ
-  //Y_shift СЃРґРІРёРі РїРѕ РѕСЃРё +/- Y
-  //show РІС‹РІРѕРґРёС‚СЊ РЅР° СЌРєСЂР°РЅ
+  //y положенее по оси Y
+  //samp_dig номер эталона
+  //dig - какую цифру обрабатываем
+  //X_shift сдвиг по оси +/- Х
+  //Y_shift сдвиг по оси +/- Y
+  //show выводить на экран
 
-  uint32_t samp = sample[samp_dig][y];//С†РµРЅС‚СЂС‹ СЌС‚Р°Р»РѕРЅР° Рё СЃСЂР°РІРЅРёРІР°РµРјР°СЏ С†РёС„СЂР° СЃРѕРІРїР°РґР°СЋС‚
-  //<< 5; РЅСѓР¶РЅРѕ РїРѕРґРіРѕС‚РѕРІРёС‚СЊ С†РµРЅС‚СЂС‹ СЃРµСЂРµРґРёРЅР° СЌС‚Р°Р»РѕРЅР° РїРѕР»СѓС‡РµРЅРЅР°СЏ РёР· Р·РЅР°РєРѕРіРµРЅРµСЂР°С‚РѕСЂР° 8, СЃРµСЂРµРґРёРЅР° С†РёС„СЂС‹ РѕС‚ РєР°РјРµСЂС‹ 13
+  uint32_t samp = sample[samp_dig][y];//центры эталона и сравниваемая цифра совпадают
+  //<< 5; нужно подготовить центры середина эталона полученная из знакогенератора 8, середина цифры от камеры 13
 
   uint32_t samp1;
 
   if ((y + Y_shift < 240) || (y + Y_shift > 0)) {
     if (X_shift < 0)
-      samp1 = l_32[dig][y + Y_shift] >> abs(X_shift); //РѕР±СЂР°Р·РµС† РєРѕС‚РѕСЂС‹Р№ СЃСЂР°РІРЅРёРІР°РµРј РјРѕР¶РµС‚ Р±С‹С‚СЊ РѕС‚СЂРёС†Р°С‚РµР»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ
+      samp1 = l_32[dig][y + Y_shift] >> abs(X_shift); //образец который сравниваем может быть отрицательное значенее
     else
-      samp1 = l_32[dig][y + Y_shift] << X_shift; //РѕР±СЂР°Р·РµС† РєРѕС‚РѕСЂС‹Р№ СЃСЂР°РІРЅРёРІР°РµРј
+      samp1 = l_32[dig][y + Y_shift] << X_shift; //образец который сравниваем
   }
   else samp1 = 0;
 
@@ -953,42 +934,42 @@ uint8_t compare(uint8_t y, uint8_t samp_dig, uint8_t dig, int X_shift, int Y_shi
 
 //---------------------------------------------------- image_recognition
 uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
-  //dig - РєР°РєСѓСЋ С†РёС„СЂСѓ РѕР±СЂР°Р±Р°С‚С‹РІР°РµРј
-  //dig_show РєР°РєСѓСЋ С†РёС„СЂСѓ РѕС‚РѕР±СЂР°Р¶Р°РµРј РµСЃР»Рё > 8 = РЅРµ РІС‹РІРѕРґРёРј
+  //dig - какую цифру обрабатываем
+  //dig_show какую цифру отображаем если > 8 = не выводим
 
-  //СЂР°СЃРїРѕР·РЅР°РІР°РЅРёРµ С†РёС„СЂ
-  //СЃСЂР°РІРЅРёС‚СЊ СЃ СЌС‚Р°Р»РѕРЅРѕРј - СЂР°СЃС‡РµС‚ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
-  uint8_t min_dig_number = number_of_samples; //РїСЂРёСЃРІРѕРёРј РјР°РєСЃРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ
+  //распознавание цифр
+  //сравнить с эталоном - расчет расстояния Хемминга
+  uint8_t min_dig_number = number_of_samples; //присвоим максимальное значенее
 
-  //РІС‹РІРѕРґ С†РёС„СЂС‹ СЃРѕ С€РєР°Р»С‹ РІ РґРІРѕРёС‡РЅРѕРј РІРёРґРµ
+  //вывод цифры со шкалы в двоичном виде
   if (dig == dig_show) {
     Serial.printf("------------------------------\n");
-    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //РїРµСЂРµР±РѕСЂ РїРѕ Y
+    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //перебор по Y
       printBinary(l_32[dig][y], "\n");
     }
     Serial.printf("------------------------------\n");
   }
 
-  //РІС‹РІРѕРґ С†РёС„СЂС‹ СЃРѕ С€РєР°Р»С‹ РІ HEX С„РѕСЂРјР°С‚Рµ
+  //вывод цифры со шкалы в HEX формате
   if (V[V_SH_HEX] == 1) {
     Serial.printf("{//%d\n", dig);
-    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //РїРµСЂРµР±РѕСЂ РїРѕ Y
+    for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //перебор по Y
       Serial.printf("0x%08lx,\t//", l_32[dig][y]);
       printBinary(l_32[dig][y], "\n");
     }
     Serial.printf("},\n");
   }
 
-  uint32_t min_Hemming[number_of_samples]; //РјР°СЃСЃРёРІ РјРёРЅРёРјР°Р»СЊРЅС‹С… СЂР°СЃСЃС‚РѕСЏРЅРёР№ РҐРµРјРјРёРЅРіР° РґР»СЏ РІСЃРµС… СЌС‚Р°Р»РѕРЅРѕРІ
+  uint32_t min_Hemming[number_of_samples]; //массив минимальных расстояний Хемминга для всех эталонов
 
-  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //РїРµСЂРµР±РѕСЂ РїРѕ РІСЃРµ СЌС‚Р°Р»Р»РѕРЅР°Рј
-    uint16_t shift[max_shift]; //С…СЂР°РЅРµРЅРёРµ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃС‡РµС‚РѕРІ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРёРЅРіР° РїРѕСЃР»Рµ РІСЃРµС… РІР°СЂРёР°РЅС‚РѕРІ СЃРґРІРёРіРѕРІ
+  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //перебор по все эталлонам
+    uint16_t shift[max_shift]; //хранение результатов расчетов расстояния Хеминга после всех вариантов сдвигов
 
     for (uint8_t i = 0; i < max_shift; i++)
-      shift[i] = 0; //РѕР±РЅСѓР»РёРј РґР»СЏ РЅР°РєРѕРїР»РµРЅРёСЏ СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ СЂР°СЃС‡РµС‚Р° СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРёРЅРіР°
+      shift[i] = 0; //обнулим для накопления результатов расчета расстояния Хеминга
 
-    for (uint8_t y = 0; y < sample_height; y++) { //РїРµСЂРµР±РѕСЂ РїРѕ Y - РІС‹СЃРѕС‚Рµ СЌС‚Р°Р»РѕРЅР° Рё РѕР±СЂР°Р·С†Р°
-      for (uint8_t i = 0; i < max_shift; i++) //РїРµСЂРµР±РѕСЂ РїРѕ РІСЃРµРј СЃРґРІРёРіР°Рј
+    for (uint8_t y = 0; y < sample_height; y++) { //перебор по Y - высоте эталона и образца
+      for (uint8_t i = 0; i < max_shift; i++) //перебор по всем сдвигам
         shift[i] += compare(y, samp_dig, dig, shift_XY[i][0], shift_XY[i][1], dig == dig_show);
       if (dig == dig_show) Serial.printf("\n");
     }
@@ -1000,7 +981,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
       Serial.printf("\n");
     }
 
-    //РїРѕРёСЃРє РјРёРЅРёРјР°Р»РЅРѕРіРѕ Р·РЅР°С‡РµРЅРёСЏ РїРѕСЃР»Рµ СЃРґРІРёРіРѕРІ
+    //поиск минималного значения после сдвигов
     min_Hemming[samp_dig] = shift[0];
     for (uint8_t i = 0; i < max_shift; i++) {
       if (min_Hemming[samp_dig] > shift[i])
@@ -1008,13 +989,13 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
     }
   }
 
-  uint32_t min_dig = 1024; //Р±СѓРґРµС‚ СЃРѕРґРµСЂР¶Р°С‚СЊ РјРёРЅРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
+  uint32_t min_dig = 1024; //будет содержать минимальное значение расстояния Хемминга
 
-  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //РїРµСЂРµР±РѕСЂ РїРѕ РІСЃРµ СЌС‚Р°Р»Р»РѕРЅР°Рј
+  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //перебор по все эталлонам
     if (min_dig >= min_Hemming[samp_dig]) {
       min_dig = min_Hemming[samp_dig];
-      min_dig_number = sample_equation[samp_dig]; //РїРѕР»СѓС‡РёС‚СЊ С†РёС„СЂСѓ СЃРѕРѕС‚РІРµС‚СЃРІРёСЏ
-      Hemming[dig].etalon_number = samp_dig; //РЅРѕРјРµСЂ СЌС‚Р°Р»РѕРЅР° РІ РјР°СЃСЃРёРІРµ
+      min_dig_number = sample_equation[samp_dig]; //получить цифру соответсвия
+      Hemming[dig].etalon_number = samp_dig; //номер эталона в массиве
     }
     if (dig == dig_show)
       Serial.printf("Etalon=%d\tmin_Hemming=%d\n", sample_equation[samp_dig], min_Hemming[samp_dig]);
@@ -1023,24 +1004,24 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
   if (dig == dig_show)
     Serial.printf("\n***** Found Digit=%d\tmin_Hemming= %d *****\n", min_dig_number, min_dig);
 
-  Hemming[dig].min_Hemming = min_dig;  //СЃРѕС…СЂР°РЅРёС‚СЊ Р·РЅР°С‡РµРЅРёРµРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
+  Hemming[dig].min_Hemming = min_dig;  //сохранить значениее расстояния Хемминга
 
-  //РїРѕРёСЃРє СЃР»РµРґСѓСЋС‰РµРіРѕ РјРёРЅРёРјСѓРјР°
+  //поиск следующего минимума
 
-  min_dig = 1024; //Р±СѓРґРµС‚ СЃРѕРґРµСЂР¶Р°С‚СЊ РјРёРЅРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
-  Hemming[dig].next_result = 10; //РІСЃРµРіРѕ С†РёС„СЂС‹ РѕС‚ 0 РґРѕ 9
+  min_dig = 1024; //будет содержать минимальное значение расстояния Хемминга
+  Hemming[dig].next_result = 10; //всего цифры от 0 до 9
 
-  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //РїРµСЂРµР±РѕСЂ РїРѕ РІСЃРµ СЌС‚Р°Р»Р»РѕРЅР°Рј
+  for (uint8_t samp_dig = 0; samp_dig < number_of_samples; samp_dig++) { //перебор по все эталлонам
     //    Serial.printf("samp_dig=%d min_dig_number=%d min_Hemming=%d min_dig=%d\n",samp_dig,min_dig_number,min_Hemming[samp_dig], min_dig);
-    if (sample_equation[samp_dig] == min_dig_number) continue; //РµСЃР»Рё СѓР¶Рµ РЅР°Р№РґРµРЅРЅС‹Р№ РјРёРЅРёРјСѓРј РїСЂРѕРїСѓСЃС‚РёС‚СЊ
+    if (sample_equation[samp_dig] == min_dig_number) continue; //если уже найденный минимум пропустить
     if (min_dig >= min_Hemming[samp_dig]) {
       min_dig = min_Hemming[samp_dig];
-      Hemming[dig].next_result = sample_equation[samp_dig]; //Р·РЅР°С‡РµРЅРµРµ РѕРїРѕР·РЅР°РЅРЅРѕР№ С†РёС„СЂС‹
+      Hemming[dig].next_result = sample_equation[samp_dig]; //значенее опознанной цифры
 
     }
   }
 
-  Hemming[dig].next_min_Hemming = min_dig;  //СЃРѕС…СЂР°РЅРёС‚СЊ Р·РЅР°С‡РµРЅРёРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
+  Hemming[dig].next_min_Hemming = min_dig;  //сохранить значение расстояния Хемминга
 
   return min_dig_number;
 }
@@ -1051,22 +1032,22 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
 void convert_to_32(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_level, bool show, frame *read_window) {
 
   /*
-    //РїСЂРѕРІРµСЂРєР° РЅР° РјР°РєСЃРёРјСѓРј СѓСЂРѕРІРЅСЏ
+    //проверка на максимум уровня
     if (mid_level + add_mid_level > 255)
       add_mid_level = (255 - mid_level);
   */
 
-  for (uint8_t dig = 0; dig < number_letter; dig++) { //РІСЃРµРіРѕ 8 С†РёС„СЂ РІ С€РєР°Р»Рµ РїРѕСЃР»РµРґРѕРІР°С‚РµР»СЊРЅРѕ РѕР±СЂР°Р±Р°С‚С‹РІР°РµРј РєР°Р¶РґСѓСЋ
-    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚РѕР»Р±С†Сѓ
+  for (uint8_t dig = 0; dig < number_letter; dig++) { //всего 8 цифр в шкале последовательно обрабатываем каждую
+    for (uint16_t y = read_window->Y1; y < read_window->Y2; y++) { //перебор по столбцу
       l_32[dig][y - read_window->Y1] = 0;
-      int x1 = max_letter_x[dig] - width_letter / 2; //РґР»СЏ РїРµСЂРІРѕР№ С†РёС„СЂС‹ СЂР°Р·РјРµСЂ РјРѕР¶РµС‚ Р±С‹С‚СЊ РјРµРЅСЊС€Рµ СѓСЃС‚Р°РЅРѕРІР»РµРЅРЅРѕР№ С€РёСЂРёРЅС‹
+      int x1 = max_letter_x[dig] - width_letter / 2; //для первой цифры размер может быть меньше установленной ширины
       if (x1 < 0) x1 = 0;
-      for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //РїРµСЂРµР±РѕСЂ РїРѕ СЃС‚СЂРѕРєРµ РІ РїСЂРµРґРµР»Р°С… РѕРґРЅРѕР№ С†РёС„СЂС‹
-        l_32[dig][y - read_window->Y1] = l_32[dig][y - read_window->Y1] << 1; //СЃРґРІРёРі РЅР° 1 РїРѕР·РёС†РёСЋ
+      for (uint16_t x = x1; x < max_letter_x[dig] + width_letter / 2; x++) { //перебор по строке в пределах одной цифры
+        l_32[dig][y - read_window->Y1] = l_32[dig][y - read_window->Y1] << 1; //сдвиг на 1 позицию
         uint32_t i = (y * fr_buf->width + x);
 
-        if (fr_buf->buf[i] > Hemming[dig].britnes_digital + add_mid_level) { //РёРЅРґРёРІРёРґСѓР°Р»СЊРЅС‹Р№ СѓСЂРѕРІРµРЅСЊ СЏСЂРєРѕСЃС‚Рё РґР»СЏ РєР°Р¶РґРѕР№ С†РёС„СЂС‹
-          //        if (fr_buf[i] > mid_level + add_mid_level) { //СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ
+        if (fr_buf->buf[i] > Hemming[dig].britnes_digital + add_mid_level) { //индивидуальный уровень яркости для каждой цифры
+          //        if (fr_buf[i] > mid_level + add_mid_level) { //средний уровень
           if (show || V[V_SH_0_1] != 0) Serial.printf("1");
           l_32[dig][y - read_window->Y1]++;
         }
@@ -1088,11 +1069,11 @@ void convert_to_32(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_level, bool 
 
 //---------------------------------------------------- dispalay_ttf_B_W
 esp_err_t dispalay_ttf_B_W(HDR *fr_buf, int16_t add_mid_level, fb_data_t *output, frame *output_window) {
-  //fr_buf Р±СѓС„РµСЂ СЃ РёР·РѕР±СЂР°Р¶РµРЅРёРµРј С„РѕСЂРјР°С‚Р° uint16_t
-  //X0 РЅР°С‡Р°Р»СЊРЅР°СЏ РєРѕСЂРґРёРЅР°С‚Р° РІС‹РІРѕРґР° РїРѕ РѕСЃРё РҐ
-  //Y0 РЅР°С‡Р°Р»СЊРЅР°СЏ РєРѕСЂРґРёРЅР°С‚Р° РІС‹РІРѕРґР° РїРѕ РѕСЃРё Y
-  //mid_level СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїСЂРёРјРµРЅСЏС‚СЃСЏ РёРЅРґРёРІРёРґСѓР°Р»СЊРЅС‹Р№ РґР»СЏ РєР°Р¶РґРѕР№ С†РёС„СЂС‹
-  //add_mid_level РїРѕРІС‹С€РµРЅРёРµ СЃР»РµРґСѓСЋС‰РµРіРѕ СѓСЂРѕРІРЅСЏ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ Р·Р°СЃРІРµС‚РєРё РїСЂРё РѕС‚РѕР±СЂР°Р¶РµРЅРёРё
+  //fr_buf буфер с изображением формата uint16_t
+  //X0 начальная кордината вывода по оси Х
+  //Y0 начальная кордината вывода по оси Y
+  //mid_level средний уровень изображения применятся индивидуальный для каждой цифры
+  //add_mid_level повышение следующего уровня для устранения засветки при отображении
 
 	uint16_t W = output_window->X2 - output_window->X1;
 	uint16_t H = output_window->Y2 - output_window->Y1;
@@ -1103,18 +1084,18 @@ esp_err_t dispalay_ttf_B_W(HDR *fr_buf, int16_t add_mid_level, fb_data_t *output
 
 	for (int y = 0; y < H; y++) //X, Y is a fr_buf coordinates
 	for (int x = 0; x < W; x++) {
-	  uint8_t dig = 0; //РЅРѕРјРµСЂ С†РёС„СЂС‹ С‚Р°Р±Р»Рѕ
+	  uint8_t dig = 0; //номер цифры табло
 
 	  uint32_t i = (y * fr_buf->width + x); // fr_buf index
 
-	  if (x > max_letter_x[dig] + width_letter / 2) { //РµСЃР»Рё С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРµРµ РІ РїСЂРµРґРµР»Р°С… С†РёС„СЂС‹, С‚Рѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰РµРµ Р·РЅР°С‡РµРЅРµРµ СЏСЂРєРѕСЃС‚Рё
-		  dig++; //РїРµСЂРµР№С‚Рё Рє СЃР»РµРґСѓСЋС‰РµР№ С†РёС„СЂРµ
+	  if (x > max_letter_x[dig] + width_letter / 2) { //если текущее значенее в пределах цифры, то использовать соответствующее значенее яркости
+		  dig++; //перейти к следующей цифре
 		  //Serial.printf("[dispalay_ttf_B_W] Next dig=%d, britnes_digital=%d\r\n", dig, Hemming[dig].britnes_digital);
-		  if (dig > number_letter) dig = number_letter - 1; //РµСЃР»Рё Р±РѕР»СЊС€Рµ С†РёС„СЂ С‚Рѕ РїСЂРёРЅРёРјР°С‚СЊ СЏСЂРєРѕСЃС‚СЊ РїРѕСЃР»РµРґРЅРµР№
+		  if (dig > number_letter) dig = number_letter - 1; //если больше цифр то принимать яркость последней
 	  }
 
 	  uint32_t colour=FACE_COLOR_BLUE;
-	  if (fr_buf->buf[i] >= Hemming[dig].britnes_digital + add_mid_level){ //РёРЅРґРёРІРёРґСѓР°Р»СЊРЅС‹Р№ СѓСЂРѕРІРµРЅСЊ СЏСЂРєРѕСЃС‚Рё РґР»СЏ РєР°Р¶РґРѕР№ С†РёС„СЂС‹
+	  if (fr_buf->buf[i] >= Hemming[dig].britnes_digital + add_mid_level){ //индивидуальный уровень яркости для каждой цифры
 		  colour = FACE_COLOR_WHITE;
 	  }
 	  fb_gfx_drawFastHLine(output, x + output_window->X1, y + output_window->Y1, 1, colour);
@@ -1127,25 +1108,19 @@ esp_err_t dispalay_ttf_B_W(HDR *fr_buf, int16_t add_mid_level, fb_data_t *output
 //---------------------------------------------------- HDR_2_jpeg
 esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
   uint32_t tstart;
-
   tstart = clock();
-
   if (show) {
 	  Serial.printf(PSTR("[HDR_2_jpeg] Free heap before call: %d bytes\n"), ESP.getFreeHeap());
   }
-
   dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, fr_buf->width, fr_buf->height, 3);
   if (!image_matrix) {
       Serial.println("[HDR_2_jpeg] dl_matrix3du_alloc failed");
   }
   else{
-
 	  // Rescale HDR to 8bit bitmap matrix
 	  for (uint16_t y = 0; y < fr_buf->height; y++)
 	  for (uint16_t x = 0; x < fr_buf->width; x++) {
-
 		  uint32_t i = (y * fr_buf->width + x); // fr_buf->buf adress from coordinates
-
 		  // rescale
 		  uint32_t t = fr_buf->buf[i]-fr_buf->min;
 		  t *= 256;
@@ -1154,7 +1129,6 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
 		  image_matrix->item[i*3+1] = (uint8_t) t;
 		  image_matrix->item[i*3+2] = (uint8_t) t;
 	  }
-
       size_t out_len = image_matrix->w * image_matrix->h * 3;
       free(jpeg_Out->buf);
       jpeg_Out->buf = NULL;
@@ -1164,13 +1138,9 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
 	  else{
 		  Serial.printf("[HDR_2_jpeg] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_Out->buf_len);
 	  }
-
   }
   dl_matrix3du_free(image_matrix);
   image_matrix = NULL;
-
-
-
   if (show) {
 	  Serial.printf(PSTR("[HDR_2_jpeg] Free heap after call: %d bytes\n"), ESP.getFreeHeap());
 	  Serial.printf(PSTR("[HDR_2_jpeg] time consume: %u ms\n"), clock() - tstart);
@@ -1178,7 +1148,6 @@ esp_err_t HDR_2_jpeg(HDR *fr_buf, bool show, JPEG *jpeg_Out) {
   return ESP_OK;
 }
 //---------------------------------------------------- HDR_2_jpeg
-
 */
 
 
@@ -1192,7 +1161,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 
   Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
-  //РЅР°РєРѕРїР»РµРЅРёРµ РєР°РґСЂРѕРІ - РїСЂРѕРёРЅС‚РµРіСЂРёСЂРѕРІР°С‚СЊ РЅРµСЃРєРѕР»СЊРєРѕ РєР°РґСЂРѕРІ РґР»СЏ СѓСЃС‚СЂР°РЅРµРЅРёСЏ С€СѓРјРѕРІ
+  //накопление кадров - проинтегрировать несколько кадров для устранения шумов
   tstart = clock();
 
   uint8_t frame_c = count;
@@ -1210,8 +1179,8 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
   s->set_pixformat(s, PIXFORMAT_JPEG);
   s->set_quality(s, 5);
 
-  for (uint8_t frames = 0; frames < frame_c; frames++) { //СѓСЃСЂРµРґРЅРµРЅРµРµ РїРѕ РєР°РґСЂР°Рј frame_count // +1 for last low quality photo for visualization in browser
-    if (fb) { //РѕСЃРІРѕР±РѕРґРёС‚СЊ Р±СѓС„РµСЂ
+  for (uint8_t frames = 0; frames < frame_c; frames++) { //усредненее по кадрам frame_count // +1 for last low quality photo for visualization in browser
+    if (fb) { //освободить буфер
       esp_camera_fb_return(fb);
       fb = NULL;
     }
@@ -1223,7 +1192,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
     	delay(5);
     };
 
-    fb = esp_camera_fb_get(); //РїРѕР»СѓС‡РёС‚СЊ РґР°РЅРЅС‹Рµ РѕС‚ РєР°РјРµСЂС‹
+    fb = esp_camera_fb_get(); //получить данные от камеры
 
     digitalWrite(BUILD_IN_LED, LOW);
 
@@ -1256,7 +1225,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 	else{
 
 
-		uint32_t i_max = fb->height * fb->width; //РјР°РєСЃРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ РјР°СЃСЃРёРІР° РґР»СЏ РґР°РЅРЅРѕРіРѕ СЌРєСЂР°РЅР°
+		uint32_t i_max = fb->height * fb->width; //максимальное значенее массива для данного экрана
 
 		fr_buf->min = 0xFFFF; // reset min before new frame capture
 
@@ -1270,23 +1239,23 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 			  if (fb->format == PIXFORMAT_GRAYSCALE) {
 				  fr_buf->buf[j] += fb->buf[i]; // accumulate cropped area
 			  }
-			  else { //РµСЃР»Рё RGB565 Р±РµСЂРµРј 8 Р±РёС‚РЅС‹Р№ Р±СѓС„РµСЂ Рё РїСЂРµРѕР±СЂР°Р·СѓРµРј РІ 16 Р±РёС‚РЅС‹Р№
-				  i <<= 1; //РµСЃР»Рё RGB565
+			  else { //если RGB565 берем 8 битный буфер и преобразуем в 16 битный
+				  i <<= 1; //если RGB565
 				  //https://github.com/techtoys/SSD2805/blob/master/Microchip/Include/Graphics/gfxcolors.h
-				  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //РїСЂРµРѕР±СЂР°Р·СѓРµРј РІ 16 Р±РёС‚РЅРѕРµ
+				  fr_buf->buf[j] += (uint16_t)(fb->buf[i]) << 8 | (uint16_t)(fb->buf[i + 1]); //преобразуем в 16 битное
 			  }
 			  fr_buf->max = fr_buf->max > fr_buf->buf[j] ? fr_buf->max : fr_buf->buf[j];
 			  fr_buf->min = fr_buf->min < fr_buf->buf[j] ? fr_buf->min : fr_buf->buf[j];
 		 }
 	}
 
-  } //СЃСѓРјРјРёСЂРѕРІР°РЅРёРµ РїРѕ РєР°РґСЂР°Рј
+  } //суммирование по кадрам
 
   Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
 
   // camera shoot for preview in browser
-	if (fb) { //РѕСЃРІРѕР±РѕРґРёС‚СЊ Р±СѓС„РµСЂ
+	if (fb) { //освободить буфер
 		esp_camera_fb_return(fb);
 		fb = NULL;
 	}
@@ -1299,7 +1268,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
     	digitalWrite(BUILD_IN_LED, HIGH);
     	delay(5);
     };
-    fb = esp_camera_fb_get(); //РїРѕР»СѓС‡РёС‚СЊ РґР°РЅРЅС‹Рµ РѕС‚ РєР°РјРµСЂС‹
+    fb = esp_camera_fb_get(); //получить данные от камеры
     digitalWrite(BUILD_IN_LED, LOW);
     if (!fb) {
       Serial.printf("failed\n");
@@ -1344,7 +1313,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 			fb_gfx_drawFastVLine(&colour_buf, x+w-1, y, h, 	FACE_COLOR_GREEN);
 
 
-			if (fb) { //РѕСЃРІРѕР±РѕРґРёС‚СЊ Р±СѓС„РµСЂ
+			if (fb) { //освободить буфер
 				esp_camera_fb_return(fb);
 				fb = NULL;
 			}
@@ -1365,7 +1334,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
     	digitalWrite(BUILD_IN_LED, HIGH);
     	delay(5);
     };
-    fb = esp_camera_fb_get(); //РїРѕР»СѓС‡РёС‚СЊ РґР°РЅРЅС‹Рµ РѕС‚ РєР°РјРµСЂС‹
+    fb = esp_camera_fb_get(); //получить данные от камеры
     digitalWrite(BUILD_IN_LED, LOW);
     if (!fb) {
       Serial.printf("failed\n");
@@ -1438,7 +1407,7 @@ void setup() {
   WiFi_Connect();
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
-    Hemming[dig].dig_defined = 10; //Р·Р°РЅРѕСЃРёРј РїРµСЂРІРѕРЅР°С‡Р°Р»СЊРЅРѕ РјР°РєСЃРёРјР°Р»СЊРЅРѕРµ С‡РёСЃР»Рѕ РІРЅРµ РґРёР°РїР°Р·РѕРЅР° 0-9
+    Hemming[dig].dig_defined = 10; //заносим первоначально максимальное число вне диапазона 0-9
   }
 
   // Route for root / web page
@@ -1607,13 +1576,13 @@ void setup() {
   server.onNotFound(notFound);
 
 
-  for (uint16_t i = 0; i < size_m3; i++) { //РѕР±РЅСѓР»РёРј Р±СѓС„РµСЂ СЃРѕС…СЂР°РЅРµРЅРёСЏ Р·РЅР°С‡РµРЅРёР№
+  for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
     Gas[i].m3 = 0;
     Gas[i].minutes = 0;
   }
-  Gas[0].minutes = 1; //РїРѕРґСЃС‡РµС‚ РІСЂРµРјРµРЅРё СЃРЅР°С‡Р°Р»Р° РґР»СЏ С‚РµРєСѓС‰РµРіРѕ СЌР»РµРјРµРЅС‚Р°
+  Gas[0].minutes = 1; //подсчет времени сначала для текущего элемента
 
-  //Gas_minute_Ticker.attach(60, m3_calculate); //РІС‹Р·С‹РІР°С‚СЊ СЂР°СЃС‡РµС‚Р° РѕР±СЉРјР° РіР°Р·Р° РєР°Р¶РґСѓСЋ РјРёРЅСѓС‚Сѓ 60
+  //Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
 
   //init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -1621,7 +1590,7 @@ void setup() {
   // Set timezone to Ukraine EET
   setenv("TZ", "EET-2EEST,M3.5.0/3,M10.5.0/4", 1);
 
-  if (!getLocalTime(&timeinfo)) { //РїРѕР»СѓС‡РёРј РІСЂРµРјСЏ РЅР°С‡Р°Р»Р° Р·Р°РїРёСЃРё СЃРѕС…СЂР°РЅРµРЅРёСЏ Рј3
+  if (!getLocalTime(&timeinfo)) { //получим время начала записи сохранения м3
     Serial.printf("Failed to obtain time\n");
     return;
   }
@@ -1631,9 +1600,9 @@ void setup() {
     Serial.println("An Error has occurred while mounting SPIFFS");
   }
 
-  init_V(); //РёРЅРёС†РёР°Р»РёР·Р°С†РёСЏ РЅР°С‡Р°Р»СЊРЅС‹С… РґР°РЅРЅС‹С… from SPIFFS
+  init_V(); //инициализация начальных данных from SPIFFS
   
-  for(uint8_t dig = 0; dig < number_letter; dig++) //РѕР±РЅСѓР»РёС‚СЊ С‡Р°СЃС‚РѕС‚Сѓ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ СЌС‚Р°Р»РѕРЅРѕРІ
+  for(uint8_t dig = 0; dig < number_letter; dig++) //обнулить частоту использования эталонов
     for(uint8_t i = 0; i < number_of_samples; i++) 
       used_samples[i][dig] = 0;
 
@@ -1708,9 +1677,9 @@ void WiFi_Connect()
 
 //---------------------------------------------------- find_max_number
 uint8_t  find_max_number(uint8_t d) {
-  //РІРѕР·РІСЂР°С‚ РјР°РєСЃРёРјР°Р»СЊРЅРѕРіРѕ Р·РЅР°С‡РµРЅРёСЏ РёР· РІСЃРµС… РЅР°Р№РґРµРЅС‹С…
-  uint8_t n = 0; //РїРµСЂРІРѕРµ Р·РЅР°С‡РµРЅРµРµ 0
-  uint8_t m1 = frequency[0][d]; //РїСЂРёСЃРІР°РёРІР°РµРј РїРµСЂРІРѕРµ Р·РЅР°С‡РµРЅРёРµ
+  //возврат максимального значения из всех найденых
+  uint8_t n = 0; //первое значенее 0
+  uint8_t m1 = frequency[0][d]; //присваиваем первое значение
   for (uint8_t i = 1; i < number_of_samples; i++) {
     if (m1 < frequency[i][d]) {
       m1 = frequency[i][d];
@@ -1726,9 +1695,9 @@ uint8_t  find_max_number(uint8_t d) {
 void show_result(bool show) {
   uint8_t defined;
   uint16_t next_x = 0;
-  char buf[10]; //Р±СѓС„РµСЂ РґР»СЏ С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ СЃС‚СЂРѕРєРё СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° Рё С‡Р°СЃС‚РѕС‚С‹ РїРѕРІС‚РѕСЂРµРЅРёСЏ С†РёС„СЂ
+  char buf[10]; //буфер для формирования строки расстояния Хемминга и частоты повторения цифр
 
-  T_0 = ""; //РѕР±РЅРѕРІРёРј СЃС‚СЂРѕС‡РєСѓ РІС‹РІРѕРґР° СЂРµР·СѓР»СЊС‚Р°С‚РѕРІ
+  T_0 = ""; //обновим строчку вывода результатов
 
   int16_t w, h;
 
@@ -1739,31 +1708,31 @@ void show_result(bool show) {
 
   //  tft.setFont(Trebuchet_MS16x21); //22 pixel for size 3 Trebuchet_MS16x21
 
-  //tft.fillRectangle (0, info_result - 2, tft.maxX(), h + 7, COLOR_BLACK); //РѕС‡РёСЃС‚РёС‚СЊ С‡Р°СЃС‚СЊ СЌРєСЂР°РЅР° GFXFont РїСЂРёРІСЏР·Р°РЅ РІРµСЂС…РЅРµР№ С‚РѕС‡РєРѕР№
+  //tft.fillRectangle (0, info_result - 2, tft.maxX(), h + 7, COLOR_BLACK); //очистить часть экрана GFXFont привязан верхней точкой
 
-  //РЅР°Р№С‚Рё РјР°РєСЃРёРјР°Р»СЊРЅСѓСЋ С‡Р°СЃС‚РѕС‚Сѓ РІС…РѕР¶РґРµРЅРёСЏ С†РёС„СЂ РїРѕСЃР»Рµ РѕРїРѕР·РЅР°РІР°РЅРёСЏ
+  //найти максимальную частоту вхождения цифр после опознавания
   for (uint8_t dig = 0; dig < number_letter; dig++) { //number_letter
     defined = find_max_number(dig);
     sprintf(buf, "%d\0", defined);
-    //РѕР±РЅРѕРІР»РµРЅРµРµ РїРµСЂРІРѕРЅР°С‡Р°Р»СЊРЅРѕ РїСЂРµРґРѕРїСЂРµРґРµР»РµРЅРЅРѕРіРѕ РЅР°Р±РѕСЂР° СЃРёРјРІРѕР»РѕРІ РµСЃР»Рё С‡Р°СЃС‚РѕС‚Р° РѕРїСЂРµРґРµР»РµРЅРёСЏ СЃРёРјРІРѕР»Р° Р±РѕР»РµРµ 7 Рё СЂР°СЃСЃРѕСЏРЅРёРµ РҐРµРјРјРёРЅРіР° РјРµРЅРµРµ Hemming_level
+    //обновленее первоначально предопределенного набора символов если частота определения символа более 7 и рассояние Хемминга менее Hemming_level
     if ((frequency[defined][dig] > average_count_level) && (Hemming[dig].min_Hemming < Hemming_level)) {
-      if (defined != Hemming[dig].dig_defined) { //РєРѕСЂСЂРµРєС‚РЅРѕ РѕР±РЅР°СЂСѓР¶РёР»Рё РїРµСЂРІС‹Р№ СЂР°Р·
+      if (defined != Hemming[dig].dig_defined) { //корректно обнаружили первый раз
         //        Serial.printf("Change defined digital in position=%d from=%d to %d\n", dig, Hemming[dig].dig_defined, defined);
         Hemming[dig].dig_defined = defined;
         //tft.drawGFXText(next_x, h, buf, COLOR_YELLOW); // Print string
-        //        tft.drawText(next_x, info_result,buf,COLOR_YELLOW); //С†РёС„СЂР° РѕРїРѕР·РЅР°РЅР° СЃ Р±РѕР»СЊС€РѕР№ РІРµСЂРѕСЏС‚РЅРѕСЃС‚СЊСЋ
+        //        tft.drawText(next_x, info_result,buf,COLOR_YELLOW); //цифра опознана с большой вероятностью
       }
-      //else tft.drawGFXText(next_x, h, buf, COLOR_GREEN); //С†РёС„СЂР° СЂР°СЃРїРѕР·РЅР°РЅР° РєРѕСЂСЂРµРєС‚РЅРѕ СѓР¶Рµ РЅРµРѕРґРЅРѕРєСЂР°С‚РЅРѕ
+      //else tft.drawGFXText(next_x, h, buf, COLOR_GREEN); //цифра распознана корректно уже неоднократно
     }
     //else tft.drawGFXText(next_x, h, buf, COLOR_RED);
 
     T_0 += defined;
-    next_x += w; //С€Р°Рі РјРµР¶РґСѓ С†РёС„СЂР°РјРё
+    next_x += w; //шаг между цифрами
 
     if (dig == 4) {
       T_0 += ".";
       //tft.drawGFXText(next_x, h, ".", COLOR_GREEN);
-      next_x += (w >> 1); //С€Р°Рі РјРµР¶РґСѓ С†РёС„СЂР°РјРё
+      next_x += (w >> 1); //шаг между цифрами
     }
 
 
@@ -1771,7 +1740,7 @@ void show_result(bool show) {
     Hemming[dig].frequency = frequency[defined][dig];
 
     if ((Hemming[dig].frequency < average_count_level) && (Hemming[dig].min_Hemming > Hemming_level)) {
-      Hemming[dig].dig_defined = 10; //РЅРµ СЂР°СЃРїРѕР·РЅР°Р»Рё СЃ Р±РѕР»СЊС€РѕР№ РІРµСЂРѕСЏС‚РЅРѕСЃС‚СЊСЋ
+      Hemming[dig].dig_defined = 10; //не распознали с большой вероятностью
     }
 
     if (show)
@@ -1779,10 +1748,10 @@ void show_result(bool show) {
                     Hemming[dig].result, Hemming[dig].frequency, Hemming[dig].min_Hemming, Hemming[dig].dig_defined, Hemming[dig].etalon_number,
                     Hemming[dig].next_min_Hemming, Hemming[dig].next_result, Hemming[dig].next_min_Hemming - Hemming[dig].min_Hemming, Hemming[dig].x_width);
 
-    used_samples[Hemming[dig].etalon_number][dig]++; //С‡Р°СЃС‚РѕС‚Р° РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ СЌС‚Р°Р»РѕРЅР°
+    used_samples[Hemming[dig].etalon_number][dig]++; //частота использования эталона
   }
 
-  //СЃРѕС…СЂР°РЅРµРЅРµРµ РґР°РЅРЅС‹С… РґР»СЏ РІС‹РІРѕРґР° РЅР° СЌРєСЂР°РЅ Virtuino
+  //сохраненее данных для вывода на экран Virtuino
   V[V_D0] =   Hemming[0].dig_defined;
   V[V_D1] =   Hemming[1].dig_defined;
   V[V_D2] =   Hemming[2].dig_defined;
@@ -1792,12 +1761,12 @@ void show_result(bool show) {
   V[V_D6] =   Hemming[6].dig_defined;
   V[V_D7] =   Hemming[7].dig_defined;
 
-  //РІС‹РІРѕРґ СЂР°СЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
+  //вывод растояния Хемминга
   T_1 = "";
   T_2 = "";
 
   //tft.setFont(Terminal6x8); //10 pixel
-  //tft.fillRectangle (0, info_Hemming - 2, tft.maxX(), info_Hemming + 24, COLOR_BLACK); //РѕС‡РёСЃС‚РёС‚СЊ С‡Р°СЃС‚СЊ СЌРєСЂР°РЅР° РґР»СЏ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРёРЅРіР° Рё С‡Р°СЃС‚РѕС‚С‹
+  //tft.fillRectangle (0, info_Hemming - 2, tft.maxX(), info_Hemming + 24, COLOR_BLACK); //очистить часть экрана для расстояния Хеминга и частоты
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
     sprintf(buf, "|%3d \0", Hemming[dig].min_Hemming);
@@ -1805,18 +1774,18 @@ void show_result(bool show) {
     //if (next_x != 0) next_x -= tft.getTextWidth(" ");
 
     //if (Hemming[dig].min_Hemming < Hemming_level)
-      //tft.drawText(next_x, info_Hemming, buf, COLOR_GREEN); //РїРµС‡Р°С‚Р°С‚СЊ РєР°Р¶РґСѓСЋ С†РёС„СЂСѓ СЃРѕ СЃРјРµС‰РµРЅРµРµРј РЅР° СЌРєСЂР°РЅРµ РґРёСЃРїР»РµСЏ
+      //tft.drawText(next_x, info_Hemming, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
     //else
-      //tft.drawText(next_x, info_Hemming, buf, COLOR_RED); //РїРµС‡Р°С‚Р°С‚СЊ РєР°Р¶РґСѓСЋ С†РёС„СЂСѓ СЃРѕ СЃРјРµС‰РµРЅРµРµРј РЅР° СЌРєСЂР°РЅРµ РґРёСЃРїР»РµСЏ
+      //tft.drawText(next_x, info_Hemming, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
 
     //    Serial.printf("%3d %3d '%s'\n",next_x,tft.getTextWidth(T_1),T_1.c_str());
     T_1 += buf;
 
     sprintf(buf, "|%3d \0", Hemming[dig].frequency);
     //if (Hemming[dig].frequency > average_count_level)
-      //tft.drawText(next_x, info_frequency, buf, COLOR_GREEN); //РїРµС‡Р°С‚Р°С‚СЊ РєР°Р¶РґСѓСЋ С†РёС„СЂСѓ СЃРѕ СЃРјРµС‰РµРЅРµРµРј РЅР° СЌРєСЂР°РЅРµ РґРёСЃРїР»РµСЏ
+      //tft.drawText(next_x, info_frequency, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране дисплея
     //else
-      //tft.drawText(next_x, info_frequency, buf, COLOR_RED); //РїРµС‡Р°С‚Р°С‚СЊ РєР°Р¶РґСѓСЋ С†РёС„СЂСѓ СЃРѕ СЃРјРµС‰РµРЅРµРµРј РЅР° СЌРєСЂР°РЅРµ РґРёСЃРїР»РµСЏ
+      //tft.drawText(next_x, info_frequency, buf, COLOR_RED); //печатать каждую цифру со смещенеем на экране дисплея
 
     //    Serial.printf("%3d %3d %3d '%s'\n",next_x,tft.getTextWidth(T_2),tft.getTextWidth(T_2)-5,T_2.c_str());
     T_2 += buf;
@@ -1831,9 +1800,9 @@ void show_result(bool show) {
 //---------------------------------------------------- loop
 void loop() {
 
-	#define min_max_offset_y_test 3 //Р·РЅР°С‡РµРЅРµРµ СЃРјРµС‰РµРЅРёСЏ +/-1 РёР»Рё 0
-	uint16_t Sum_min_Hemming[min_max_offset_y_test]; //РєРѕР»РёС‡РµСЃС‚РІРѕ РІР°СЂРёР°РЅС‚РѕРІ РїРѕРёСЃРєР° СЃРјРµС‰РµРЅРёСЏ РїРѕ РѕСЃРё Y РґР»СЏ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРѕР№ РїРѕРґСЃС‚СЂРѕР№РєРё
-	static uint8_t WiFi_Lost = 0; //СЃС‡РµС‚С‡РёРє РїРѕС‚РµСЂРё СЃРІСЏР·Рё WiFi
+	#define min_max_offset_y_test 3 //значенее смещения +/-1 или 0
+	uint16_t Sum_min_Hemming[min_max_offset_y_test]; //количество вариантов поиска смещения по оси Y для автоматической подстройки
+	static uint8_t WiFi_Lost = 0; //счетчик потери связи WiFi
 
 
 	static BitmapBuff BitmapObj(frame_buf.width, frame_buf.height*3);		// bitmap buffer for intermediate results output
@@ -1880,24 +1849,24 @@ void loop() {
 
 	  refreshCalcs = false;
 
-	  //РЅР°Р№С‚Рё СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ РїРёРєСЃРµР»РµР№ РѕРєРЅР° С‚Р°Р±Р»Рѕ
+	  //найти средний уровень пикселей окна табло
 	  pixel_level = find_middle_level_image(&frame_buf, true);
 
-	  //РїРѕРёСЃРє РїРѕР»РѕР¶РµРЅРёСЏ РѕРєРЅР° С†РёС„СЂ (top and bottom edges coordinates) - РїСЂРё РЅР°Р№РґРµРЅРѕРј СѓСЂРѕРІРЅРµ РїРѕ РѕСЃРё y
+	  //поиск положения окна цифр (top and bottom edges coordinates) - при найденом уровне по оси y
 	  offset = V[V_level_find_digital_Y]*(frame_buf.max-frame_buf.min)/100;
-	  if(find_digits_y(&frame_buf, pixel_level + offset, true, &read_window)){ //СѓСЂРѕРІРµРЅСЊ РїРѕРІС‹СЃРёРј РЅР° 15 РµРґРёРЅРёС†, С‡С‚РѕР±С‹ СѓР±СЂР°С‚СЊ Р·Р°СЃРІРµС‚РєСѓ
+	  if(find_digits_y(&frame_buf, pixel_level + offset, true, &read_window)){ //уровень повысим на 15 единиц, чтобы убрать засветку
 		  return;
 	  }
-	  //РїРѕРёСЃРє РїРѕР»РѕР¶РµРЅРёСЏ РѕРєРЅР° С†РёС„СЂ (left and right edges) - between found up and bottom edges
+	  //поиск положения окна цифр (left and right edges) - between found up and bottom edges
 	  if(find_digits_x(&frame_buf, pixel_level + offset, true, &read_window)){
 		  return;
 	  }
 	  Serial.printf("Detected read_window (%d;%d)-(%d;%d)\r\n", read_window.X1, read_window.Y1,read_window.X2, read_window.Y2);
 
 
-	  //РїРѕРёСЃРє РјР°РєСЃРёРјСѓРјР° - РїСЂРµРґРїРѕР»РѕР¶РёС‚РµР»СЊРЅРѕ СЃРµСЂРµРґРёРЅС‹ С†РёС„СЂ
+	  //поиск максимума - предположительно середины цифр
 	  // find maximum brightness of summary columns values
-	  if(find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true, &read_window)){ //СѓСЂРѕРІРµРЅСЊ РїРѕРІС‹СЃРёРј РЅР° 7 РµРґРёРЅРёС†, С‡С‚РѕР±С‹ СѓР±СЂР°С‚СЊ Р·Р°СЃРІРµС‚РєСѓ
+	  if(find_max_digital_X(&frame_buf, pixel_level, V[V_level_find_digital_X], true, &read_window)){ //уровень повысим на 7 единиц, чтобы убрать засветку
 		  return;
 	  }
 
@@ -1944,14 +1913,14 @@ void loop() {
 					return;
 				}
 
-	  //РЅР°Р№С‚Рё СЃСЂРµРґРЅРёР№ СѓСЂРѕРІРµРЅСЊ РґР»СЏ РєР°Р¶РґРѕР№ С†РёС„СЂС‹
+	  //найти средний уровень для каждой цифры
 	  find_middle_britnes_digital(&frame_buf, true, &read_window);
 
-	  //РѕС‚РѕР±СЂР°Р¶РµРЅРёРµ РЅР° РґРёСЃРїР»РµРё
+	  //отображение на дисплеи
 
 	  window_out.Y1 = frame_buf.height * 2;
 	  window_out.Y2 = frame_buf.height * 3;
-	  dispalay_ttf_B_W(&frame_buf, V[V_level_convert_to_32], Bitmap->thisPtr, &window_out);//&jpeg_display01); //РїРѕРІС‹СЃРёРј РЅР° 5-20 РµРґРёРЅРёС†, С‡С‚РѕР±С‹ СѓР±СЂР°С‚СЊ Р·Р°СЃРІРµС‚РєСѓ
+	  dispalay_ttf_B_W(&frame_buf, V[V_level_convert_to_32], Bitmap->thisPtr, &window_out);//&jpeg_display01); //повысим на 5-20 единиц, чтобы убрать засветку
 
 
 
@@ -1962,44 +1931,44 @@ void loop() {
 
 
 
-	  //РїСЂРµРѕР±СЂР°Р·РѕРІР°РЅРёРµ РІ 32 Р±РёС‚РЅРѕРµ С‡РёСЃР»Р°
-	  convert_to_32(&frame_buf, pixel_level, V[V_level_convert_to_32], false, &read_window); //СѓСЂРѕРІРµРЅСЊ РїРѕРІС‹СЃРёРј РЅР° 20 РµРґРёРЅРёС†, С‡С‚РѕР±С‹ СѓР±СЂР°С‚СЊ Р·Р°СЃРІРµС‚РєСѓ
+	  //преобразование в 32 битное числа
+	  convert_to_32(&frame_buf, pixel_level, V[V_level_convert_to_32], false, &read_window); //уровень повысим на 20 единиц, чтобы убрать засветку
 
-	  //СЃСЂР°РІРЅРёС‚СЊ СЃ СЌС‚Р°Р»РѕРЅРѕРј - СЂР°СЃСЃС‡РµС‚ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
+	  //сравнить с эталоном - рассчет расстояния Хемминга
 	  uint8_t count = 0;
-	  for (uint8_t dig = 0; dig < number_letter; dig++) { //РїСЂРѕРІСЂРµРєР° РїРѕ РІСЃРµРј С†РёС„СЂР°Рј С€РєР°Р»С‹
+	  for (uint8_t dig = 0; dig < number_letter; dig++) { //проврека по всем цифрам шкалы
 		  result[count][dig] = image_recognition(dig, V[V_show_digital], &read_window);
-		  frequency[result[count][dig]][dig]++; //РїРѕСЃС‡РµС‚ С‡РёСЃР»Р° СЃРѕРІРїР°РґРµРЅРёСЏ С†РёС„СЂР° РѕРїСЂРµРґРµР»РµРЅРЅРѕР№ С†РёС„СЂС‹
+		  frequency[result[count][dig]][dig]++; //посчет числа совпадения цифра определенной цифры
 	  }
 
-	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test-100; offset_y_test++) { //РїРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРјРµС‰РµРЅРёРµ РїРѕ РѕСЃРё Y
+	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test-100; offset_y_test++) { //попробовать смещение по оси Y
 
-		offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //Рє СѓР¶Рµ РѕРїСЂРµРґРµР»РµРЅРЅРѕРјСѓ СЂР°РЅРµРµ Р·РЅР°С‡РµРЅРёСЋ СЃРјРµС‰РµРЅРёСЏ РїРѕРїСЂРѕР±РѕРІР°С‚СЊ РЅРѕРІРѕРµ СЃРјРµС‰РµРЅРёРµ +/-1 РёР»Рё 0
+		offset_y_current = V[V_offset_y_test] + (offset_y_test - 1); //к уже определенному ранее значению смещения попробовать новое смещение +/-1 или 0
 
-		for (uint8_t dig = 0; dig < number_letter; dig++) { //РѕР±РЅСѓР»РёС‚СЊ РјР°СЃСЃРёРІ РґР»СЏ РїРѕРёСЃРєР° С‡Р°СЃС‚РѕС‚С‹ РїРѕРІС‚РѕСЂРµРЅРёСЏ С†РёС„СЂ
-		  for (uint8_t i = 0; i < number_of_samples; i++) { //РїРµСЂРµР±РѕСЂ РїРѕ РІСЃРµРј Р·РЅР°С‡РµРЅРёСЏ РѕР±СЂР°Р·С†РѕРІ
+		for (uint8_t dig = 0; dig < number_letter; dig++) { //обнулить массив для поиска частоты повторения цифр
+		  for (uint8_t i = 0; i < number_of_samples; i++) { //перебор по всем значения образцов
 			frequency[i][dig] = 0;
 		  }
 		}
 
-		for (uint8_t count = 0; count < average_count; count++) { //РїРѕРІС‚РѕСЂРёРј СЂРµР·СѓР»СЊС‚Р°С‚ Рё РЅР°Р№РґРµРј РѕРїРѕР·РЅР°РЅС‹Рµ С‡РёСЃР»Р°
+		for (uint8_t count = 0; count < average_count; count++) { //повторим результат и найдем опознаные числа
 
-			if (V[V_SH_M3] == 1) print_m3(); //РІС‹РІРµСЃС‚Рё РЅР°РєРѕРїР»РµРЅРЅС‹Рµ РґР°РЅС‹Рµ РЅР° СЌРєСЂР°РЅ РјРѕРЅРёС‚РѕСЂР°
+			if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
-		} //РїРѕРІС‚РѕСЂРёРј СЂРµР·СѓР»СЊС‚Р°С‚ Рё РЅР°Р№РґРµРј РѕРїРѕР·РЅР°РЅС‹Рµ С‡РёСЃР»Р°
+		} //повторим результат и найдем опознаные числа
 
-		if (V[V_SH_M3] == 1) print_m3(); //РІС‹РІРµСЃС‚Рё РЅР°РєРѕРїР»РµРЅРЅС‹Рµ РґР°РЅС‹Рµ РЅР° СЌРєСЂР°РЅ РјРѕРЅРёС‚РѕСЂР°
+		if (V[V_SH_M3] == 1) print_m3(); //вывести накопленные даные на экран монитора
 
 		if (V[V_GBW] != 2) {
 		  show_result(true);
 
 
-		  //СЃСѓРјРјР°СЂРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РґР»СЏ РІСЃРµС… С†РёС„СЂ РїСЂРё СЂР°Р·РЅРѕРј СЃРјРµС‰РµРЅРёРё
+		  //суммарное значение расстояния Хемминга для всех цифр при разном смещении
 
-		  Sum_min_Hemming[offset_y_test] = 0; //РѕР±РЅСѓР»РёРј РґР»СЏ РїРѕСЃР»РµРґСѓСЋС‰РµРіРѕ РЅР°РєРѕРїР»РµРЅРёСЏ
-		  for (uint8_t dig = 0; dig < number_letter - 1; dig++) //Р±РµР· РїРѕСЃР»РµРґРЅРµР№ С†РёС„СЂС‹
+		  Sum_min_Hemming[offset_y_test] = 0; //обнулим для последующего накопления
+		  for (uint8_t dig = 0; dig < number_letter - 1; dig++) //без последней цифры
 			Sum_min_Hemming[offset_y_test] += Hemming[dig].min_Hemming;
-		  V[V_Sum_min_Hemming_current] =  Sum_min_Hemming[offset_y_test]; //РїРµСЂРµРґР°РґРёРј С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РІ РїСЂРёР»РѕР¶РµРЅРёРµ
+		  V[V_Sum_min_Hemming_current] =  Sum_min_Hemming[offset_y_test]; //передадим текущее значение в приложение
 
 		  V[V_offset_y_current] = (offset_y_test - 1);
 
@@ -2010,14 +1979,14 @@ void loop() {
         //store_check_limits(V[V_level_find_digital_X], 0, 150, "/V_level_find_digital_X.txt");
         //store_check_limits(V[V_level_convert_to_32],  0, 150, "/V_level_convert_to_32.txt");
 
-	  } //РїРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРјРµС‰РµРЅРёРµ РїРѕ РѕСЃРё Y
+	  } //попробовать смещение по оси Y
 
 
-	  //РїРѕРёСЃРє РјРёРЅРёРјР°Р»СЊРЅРѕРіРѕ СЃСѓРјРјР°СЂРЅРѕРіРѕ Р·РЅР°С‡РµРЅРёСЏ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РґР»СЏ РІСЃРµС… С†РёС„СЂ РїСЂРё СЂР°Р·РЅРѕРј СЃРјРµС‰РµРЅРёРё
-	  uint16_t Sum_min = Sum_min_Hemming[0]; //РјРёРЅРёРјР°Р»СЊРЅРѕРµ Р·РЅР°С‡РµРЅРёРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР°
-	  uint8_t Sum_min_offset_y_test = 0; //СЃРјРµС‰РµРЅРёРµ РїРѕ РѕСЃРё Y
+	  //поиск минимального суммарного значения расстояния Хемминга для всех цифр при разном смещении
+	  uint16_t Sum_min = Sum_min_Hemming[0]; //минимальное значение расстояния Хемминга
+	  uint8_t Sum_min_offset_y_test = 0; //смещение по оси Y
 
-	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //РїРѕРїСЂРѕР±РѕРІР°С‚СЊ СЃРјРµС‰РµРЅРёРµ РїРѕ РѕСЃРё Y
+	  for (uint8_t offset_y_test = 0; offset_y_test < min_max_offset_y_test; offset_y_test++) { //попробовать смещение по оси Y
 		 if (Sum_min > Sum_min_Hemming[offset_y_test]) {
 		  Sum_min = Sum_min_Hemming[offset_y_test];
 		  Sum_min_offset_y_test = offset_y_test;
@@ -2025,13 +1994,13 @@ void loop() {
 	  }
 
 	  if (V[V_GBW] != 2) {
-		V[V_Sum_min_Hemming] =  Sum_min; //РїРµСЂРµРґР°РґРёРј С‚РµРєСѓС‰РµРµ Р·РЅР°С‡РµРЅРёРµ РІ РїСЂРёР»РѕР¶РµРЅРёРµ
-		if (V[V_Sum_min_Hemming] > 250) { //СЃСѓРјРјР°СЂРЅРѕРµ Р·РЅР°С‡РµРЅРµРµ СЂР°СЃСЃС‚РѕСЏРЅРёСЏ РҐРµРјРјРёРЅРіР° РЅРµ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ Р±РѕР»РµРµ 250
+		V[V_Sum_min_Hemming] =  Sum_min; //передадим текущее значение в приложение
+		if (V[V_Sum_min_Hemming] > 250) { //суммарное значенее расстояния Хемминга не должно быть более 250
 		  V[V_Sum_min_Hemming_error]++;
 		  Serial.printf("Malfunction, summary Hemming destination=%.0f errors total=%.0f\n", V[V_Sum_min_Hemming], V[V_Sum_min_Hemming_error]);
 		}
 		else {
-		  V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //Р·Р°РїРѕРјРЅРёРј Р»СѓС‡С€РµРµ Р·РЅР°С‡РµРЅРёРµ
+		  V[V_offset_y_test] +=  (Sum_min_offset_y_test - 1); //запомним лучшее значение
 		}
 
 		Serial.printf("Result summary Hemming destination=%d at offset=%d result offset=%.0f errors: %.0f\n\n", Sum_min, Sum_min_offset_y_test - 1, V[V_offset_y_test], V[V_Sum_min_Hemming_error]);
@@ -2044,7 +2013,7 @@ void loop() {
 		Serial.printf("No wifi connection %d\n", WiFi_Lost);
 	}
 	else WiFi_Lost = 0;
-	if (WiFi_Lost == 6) WiFi_Connect(); //РµСЃР»Рё РЅРµС‚ СЃРІСЏР·Рё РѕРєРѕР»Рѕ 4 РјРёРЅСѓС‚ РїРµСЂРµСЃРѕРµРґРёРЅРёС‚СЊСЃСЏ
+	if (WiFi_Lost == 6) WiFi_Connect(); //если нет связи около 4 минут пересоединиться
 
 	delay(1000);
 
@@ -2152,7 +2121,7 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
 			  uint32_t i = ((y-mcu_y) * mcu_w + (x-mcu_x)); 							// pImg adress from coordinates
 			  uint32_t j = ((y-area_frame->Y1) * DestBuff->width + (x-area_frame->X1)); // DestBuff adress from coordinates
 
-			  //Р±РµСЂРµРј 16 Р±РёС‚РЅС‹Р№ RGB565 Р±СѓС„РµСЂ Рё РїСЂРµРѕР±СЂР°Р·СѓРµРј РІ 16 Р±РёС‚РЅС‹Р№ GRAYSCALE
+			  //берем 16 битный RGB565 буфер и преобразуем в 16 битный GRAYSCALE
 			  //https://stackoverflow.com/questions/58449462/rgb565-to-grayscale
 			  int16_t pixel = pImg[i];
 			  int16_t red   = ((pixel & 0xF800)>>11);
