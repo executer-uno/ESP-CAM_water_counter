@@ -485,13 +485,13 @@ void printBinary(T value, String s) {
   for ( size_t mask = 1 << ((sizeof(value) * CHAR_BIT) - 1); mask; mask >>= 1 ) {
     Serial.printf("%c", value & mask ? '1' : ' ');
   }
-  Serial.printf("%s", s);
+  Serial.printf("%s", s.c_str());
 }
 //---------------------------------------------------- printBinary
 
 
 //---------------------------------------------------- britnes_digital
-uint16_t find_middle_britnes_digital(HDR *fr_buf, bool show, frame *read_window) {
+void find_middle_britnes_digital(HDR *fr_buf, bool show, frame *read_window) {
   //расчет средней €ркости пикселей дл€ каждой цифры после того как определили их место
   for (uint8_t dig = 0; dig < number_letter; dig++) { //поочередно обрабатываем каждое знакоместо отельно
     float britnes  = 0;
@@ -689,25 +689,25 @@ esp_err_t find_digits_y (HDR *fr_buf, uint16_t mid_level, bool show, frame *read
   uint8_t pos_2 = (position_m3 - 2) & (size_m3 - 1); //позици€ в буфере после места записи -2
 
   if (Gas[pos_2].minutes != 0) { //если уже сохранено не менее 2-х элементов
-    sprintf(buf, "%4d mins %4.2f m3/m\0", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
+    sprintf(buf, "%4d mins %4.2f m3/m", Gas[pos_1].minutes, (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0));
     //tft.drawText(0, info_time, buf, COLOR_WHITE);
 
     V[V_m3_m] = (Gas[pos_1].m3 - Gas[pos_2].m3) / (Gas[pos_1].minutes * 100.0);
     if (V[V_m3_m] > 1) V[V_m3_m] = 0; //за 1 минуту не может быть больше 1 м3
   }
   else {
-    sprintf(buf, "%4d mins %4.2f m3\0", Gas[pos_1].minutes, Gas[pos_1].m3 / 100.0);
+    sprintf(buf, "%4d mins %4.2f m3", Gas[pos_1].minutes, Gas[pos_1].m3 / 100.0);
     //tft.drawText(0, info_time, buf, COLOR_WHITE);
     V[V_m3_m] = 0;
   }
 
-  sprintf(buf, "%02d:%02d:%02d\0", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+  sprintf(buf, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
   if (!getLocalTime(&timeinfo)) {
     Serial.printf("Failed to obtain time\n");
     //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_RED); //9 * tft.getCharWidth(48)
   }
   else {
-    sprintf(buf, "%02d:%02d:%02d\0", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    sprintf(buf, "%02d:%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
     //tft.drawText(tft.maxX() - tft.getTextWidth(buf), info_time, buf, COLOR_YELLOW);
   }
 
@@ -959,7 +959,7 @@ uint8_t image_recognition(uint8_t dig, uint8_t dig_show, frame *read_window) {
   if (V[V_SH_HEX] == 1) {
     Serial.printf("{//%d\n", dig);
     for (uint8_t y = 0; y < read_window->Y2 - read_window->Y1; y++) { //перебор по Y
-      Serial.printf("0x%08lx,\t//", l_32[dig][y]);
+      Serial.printf("0x%08ux,\t//", l_32[dig][y]);
       printBinary(l_32[dig][y], "\n");
     }
     Serial.printf("},\n");
@@ -1062,7 +1062,7 @@ void convert_to_32(HDR *fr_buf, uint16_t mid_level, int16_t add_mid_level, bool 
           if (V[V_SH_0_1] == 2) Serial.printf("0");
         }
       }
-      if (show) Serial.printf("|0x%08lx\n", l_32[dig][y - read_window->Y1]);
+      if (show) Serial.printf("|0x%08ux\n", l_32[dig][y - read_window->Y1]);
       if (V[V_SH_0_1] != 0) Serial.printf("\n");
     }
     if (show) Serial.printf("Letter box middel = %d d_x = %d d_y =%d mid_line_y=%d\n", max_letter_x[dig], width_letter, read_window->Y2 - read_window->Y1, read_window->Y1 + (read_window->Y2 - read_window->Y1) / 2);
@@ -1353,7 +1353,7 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 	Serial.printf(PSTR("[sum_frames] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
 
 	if (show) {
-		Serial.printf("[sum_frames] Summary capture time for all frames: %u ms of %d frames\n", clock() - tstart, frame_c);
+		Serial.printf("[sum_frames] Summary capture time for all frames: %lu ms of %d frames\n", clock() - tstart, frame_c);
 	}
 	return ESP_OK;
 }
@@ -1516,7 +1516,7 @@ void setup() {
     else if (request->hasArg("FlashLED")) {
         inputMessage = request->arg("FlashLED");
 
-        Serial.printf("FlashLED inputMessage = %s\r\n", inputMessage);
+        Serial.printf("FlashLED inputMessage = %s\r\n", inputMessage.c_str());
 
         V[V_Flash] = 1.0;
 
@@ -1718,7 +1718,7 @@ void show_result(bool show) {
   //найти максимальную частоту вхождени€ цифр после опознавани€
   for (uint8_t dig = 0; dig < number_letter; dig++) { //number_letter
     defined = find_max_number(dig);
-    sprintf(buf, "%d\0", defined);
+    sprintf(buf, "%d%c", defined,'\0');
     //обновленее первоначально предопределенного набора символов если частота определени€ символа более 7 и рассо€ние ’емминга менее Hemming_level
     if ((frequency[defined][dig] > average_count_level) && (Hemming[dig].min_Hemming < Hemming_level)) {
       if (defined != Hemming[dig].dig_defined) { //корректно обнаружили первый раз
@@ -1774,7 +1774,7 @@ void show_result(bool show) {
   //tft.fillRectangle (0, info_Hemming - 2, tft.maxX(), info_Hemming + 24, COLOR_BLACK); //очистить часть экрана дл€ рассто€ни€ ’еминга и частоты
 
   for (uint8_t dig = 0; dig < number_letter; dig++) {
-    sprintf(buf, "|%3d \0", Hemming[dig].min_Hemming);
+    sprintf(buf, "|%3d %c", Hemming[dig].min_Hemming,'\0');
     //next_x = max(tft.getTextWidth(T_1), tft.getTextWidth(T_2));
     //if (next_x != 0) next_x -= tft.getTextWidth(" ");
 
@@ -1786,7 +1786,7 @@ void show_result(bool show) {
     //    Serial.printf("%3d %3d '%s'\n",next_x,tft.getTextWidth(T_1),T_1.c_str());
     T_1 += buf;
 
-    sprintf(buf, "|%3d \0", Hemming[dig].frequency);
+    sprintf(buf, "|%3d %c", Hemming[dig].frequency,'\0');
     //if (Hemming[dig].frequency > average_count_level)
       //tft.drawText(next_x, info_frequency, buf, COLOR_GREEN); //печатать каждую цифру со смещенеем на экране диспле€
     //else
