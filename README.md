@@ -8,11 +8,11 @@ Most complicate thing of text recognition will be taken from his project.
 
 Actual browser output view looks like:
 
-![Actual](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171527.png)
+![Actual](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/Attachements/2020-05-11_171527.png)
 
 Parameters page:
 
-![Parameters](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/2020-05-11_171538.png)
+![Parameters](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/Attachements/2020-05-11_171538.png)
 
 
 # How to get that repo into Sloeber IDE:
@@ -42,3 +42,21 @@ C:\Users\E_CAD\git\ESP_CAM_GIT\ESP-CAM_water_counter\ESP_Cam_Counter
 Setup board configuration and on next dialog keeps “default ino file”. It will blames “failed to create project”. Press “OK”.
 
 Project with connected repo is ready in Sloeber.
+
+# Project settings in Sloeber IDE:
+
+Board setup:
+
+![Board setup](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/Attachements/2020-11-06_201347.png)
+
+Internal librarys:
+
+![Internal librarys](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/Attachements/2020-11-06_201502.png)
+
+External librarys:
+
+https://github.com/me-no-dev/AsyncTCP.git
+
+https://github.com/me-no-dev/ESPAsyncWebServer.git
+
+![External librarys](https://github.com/executer-uno/ESP-CAM_water_counter/blob/Master/Attachements/2020-11-06_201443.png)
