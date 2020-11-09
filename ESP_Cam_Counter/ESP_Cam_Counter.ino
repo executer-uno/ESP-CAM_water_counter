@@ -2118,51 +2118,48 @@ void loop() {
 
 			}
 
+			//---------------------------------------------------------------------------------------------
+			// --------------------- The Hough Transformation -----------------------
+			// By http://www.keymolen.com/2013/05/hough-transformation-c-implementation.html
+
+			//Create the accu
+			int _img_w = fb->width;
+			int _img_h = fb->height;
+
+			double hough_h = ((sqrt(2.0) * (double)(_img_h>_img_w?_img_h:_img_w)) / 2.0);
+			int _accu_h = hough_h * 2.0; 	// -ro -> +ro
+			int _accu_w = 180;				// thetta 0..180
 
 
+			dl_matrix3du_t *_accu 	= dl_matrix3du_alloc(1, _accu_w, _accu_h, 1);		// Hough space image transformation
 
-
-			Serial.printf("[get_edged_shoot] Frame buffer from camera fb size is %u bytes\r\n", fb->len);
-
-			// Sobel operator matrixes
-		    int GX[3][3]={{-1, 0, 1},
-		                 {-2, 0, 2},
-		                 {-1, 0, 1}};
-		    int GY[3][3]={{ 1, 2, 1},
-		                 { 0, 0, 0},
-		                 {-1,-2,-1}};
-
-			dl_matrix3du_t *sobel_matrix_dx = dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// sobel transformation results (dX part)
-			if (!sobel_matrix_dx) {
-			  Serial.println("[get_edged_shoot] dl_matrix3du_alloc failed");
+			if (!_accu) {
+				Serial.println("[hough] dl_matrix3du_alloc failed");
 			}
 			else{
-			  // do Sobel transform
-			  for (uint16_t y = 0; y < fb->height; y++)
-			  for (uint16_t x = 0; x < fb->width; x++) {
 
-				  uint32_t i = (y * fb->width + x); // fb->buf address from coordinates
+				double center_x = _img_w/2;
+				double center_y = _img_h/2;
+
+				for(int y=0;y<_img_h;y++){
+					for(int x=0;x<_img_w;x++){
+
+						int i  = y * fb->width + x; 		// imgnm adress from coordinates
 
 
+						if( imgnm->item[i] > 250 ){
+							for(int t=0;t<180;t++){
+								double r = 0.0;
+								r += (double)x - center_x) * cos((double)t * DEG2RAD);
+								r += (double)y - center_y) * sin((double)t * DEG2RAD);
 
-
-
-				  image_matrix->item[i*3+0] = (uint8_t) t;
-				  image_matrix->item[i*3+1] = (uint8_t) t;
-				  image_matrix->item[i*3+2] = (uint8_t) t;
-			  }
-			  size_t out_len = image_matrix->w * image_matrix->h * 3;
-			  free(jpeg_Out->buf);
-			  jpeg_Out->buf = NULL;
-			  if(!fmt2jpg(image_matrix->item, out_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
-				  Serial.println("[HDR_2_jpeg] JPEG compression failed");
-			  }
-			  else{
-				  Serial.printf("[HDR_2_jpeg] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_Out->buf_len);
-			  }
+								int j =  round(r + hough_h) * 180.0 + t; 		// _accu adress from coordinates
+								_accu[j]++;
+							}
+						}
+					}
+				}
 			}
-			dl_matrix3du_free(image_matrix);
-			image_matrix = NULL;
 
 
 
