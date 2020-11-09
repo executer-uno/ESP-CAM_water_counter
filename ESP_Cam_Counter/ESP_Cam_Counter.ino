@@ -1874,11 +1874,13 @@ void loop() {
 			// following code is based on
 			// https://rranddblog.wordpress.com/canny-edge-detection-c-optimisation-1/
 			// https://github.com/rrandd/Canny-Edge-Detection/tree/master/C%2B%2B/Canny%20Edge%20Detection
+			// https://habr.com/ru/post/114589/
 
 			// apply Gaussian blur to fb image buffer
 			dl_matrix3du_t *imgblur 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Gaussian blurred image and result image
 			dl_matrix3du_t *imggraddir 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients directions
 			dl_matrix3du_t *imggrad 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients magnitudes
+			dl_matrix3du_t *imgnm 		= imgblur;													// Result image will re-use blurred image as a storage memory
 
 			if (!imgblur || !imggraddir || !imggrad) {
 				Serial.println("[get_edged_shoot] dl_matrix3du_alloc failed");
@@ -2009,8 +2011,6 @@ void loop() {
 				int sensitivity = 10;
 				int graddir = 0, grad = 0;
 
-				dl_matrix3du_t *imgnm = imgblur;				// Result image will re-use blurred image as a storage memory
-
 				// Get each pixel and apply the blur filter
 				for (int x = 2; x <= fb->width - 2; x++) {
 					for (int y = 2; y <= fb->height - 2; y++) {
@@ -2113,7 +2113,8 @@ void loop() {
 					}
 				}
 
-
+				dl_matrix3du_free(imggrad);		// Gradients will not be used any further
+				dl_matrix3du_free(imggraddir);
 
 			}
 
