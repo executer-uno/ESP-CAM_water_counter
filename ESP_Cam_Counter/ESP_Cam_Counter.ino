@@ -1830,6 +1830,352 @@ void loop() {
 
 	  takeNewPhoto = false;
 
+
+	  // analyze camera view and get the area of interest coordinates
+	  // [get_edged_shoot]
+	  {
+
+			fb = NULL;
+			sensor_t * s = esp_camera_sensor_get();
+
+			Serial.printf(PSTR("[get_edged_shoot] Free heap: %d bytes, Free PSRAM: %d bytes\n"), ESP.getFreeHeap(), ESP.getFreePsram());
+
+			// Prepare camera for image capture quality parameters
+			s->set_framesize(s, FRAMESIZE_QVGA);
+			s->set_pixformat(s, PIXFORMAT_GRAYSCALE);
+			//s->set_quality(s, 5);
+
+
+			if (fb) { //освободить буфер
+				esp_camera_fb_return(fb);
+				fb = NULL;
+			}
+
+			Serial.printf("[get_edged_shoot] Camera capture: ");
+
+			if(V[V_Flash] != 0.0) {
+				digitalWrite(BUILD_IN_LED, HIGH);
+				delay(5);
+			};
+
+			fb = esp_camera_fb_get(); //получить данные от камеры
+
+			digitalWrite(BUILD_IN_LED, LOW);
+
+			if (!fb) {
+				Serial.printf("Camera capture failed\n");
+				return ESP_FAIL;
+			}
+				else{
+				Serial.printf("Camera capture OK\n");
+			}
+
+
+			// following code is based on
+			// https://rranddblog.wordpress.com/canny-edge-detection-c-optimisation-1/
+			// https://github.com/rrandd/Canny-Edge-Detection/tree/master/C%2B%2B/Canny%20Edge%20Detection
+
+			// apply Gaussian blur to fb image buffer
+			dl_matrix3du_t *imgblur 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Gaussian blurred image and result image
+			dl_matrix3du_t *imggraddir 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients directions
+			dl_matrix3du_t *imggrad 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients magnitudes
+
+			if (!imgblur || !imggraddir || !imggrad) {
+				Serial.println("[get_edged_shoot] dl_matrix3du_alloc failed");
+			}
+			else{
+
+				// Definitions
+				uint32_t blurpixel=0;
+				uint32_t pixelweight = 0;
+				uint32_t i = 0;
+				uint32_t j = 0;
+
+				//---------------------------------------------------------------------------------------------
+				// --------------------- Gaussian blur -----------------------
+
+				// Define gaussian blur weightings array
+				int weighting[5][5] =
+				{
+				{ 2, 4, 5, 4, 2},
+				{ 4, 9,12, 9, 4},
+				{ 5,12,15,12, 5},
+				{ 4, 9,12, 9, 4},
+				{ 2, 4, 5, 4, 2}
+				};
+
+				// Get each pixel and apply the Gaussian blur filter
+				for (int x = 2; x <= fb->width - 2; x++) {
+					for (int y = 2; y <= fb->height - 2; y++) {
+
+						// Clear blurpixel
+						blurpixel = 0;
+
+						// +- 2 for each pixel and calculate the weighting
+						for (int dx = -2; dx <= 2; dx++) {
+							for (int dy = -2; dy <= 2; dy++) {
+								pixelweight = weighting[dx+2][dy+2];
+
+								i = ((y+dy) * fb->width + (x+dx)); // fb->buf adress from coordinates
+
+								// Apply weighting
+								blurpixel = blurpixel + fb->buf[i] * pixelweight;
+							}
+						}
+						// Write pixel to blur image
+						j = y * imgblur->w + x; // imgblur adress from coordinates
+						imgblur->item[j] = (int)(blurpixel / 159);
+
+					}
+				}
+
+				//---------------------------------------------------------------------------------------------
+				// --------------------- Gradient intensity pass -----------------------
+				{
+					int pix[3] = { 0,0,0 };
+					int gradx = 0, grady = 0;
+					int graddir = 0, grad = 0;
+					double tempa = 0, temps = 0, tempr = 0;
+					uint32_t i = 0;
+
+					// Get pixels and calculate gradient and direction
+					for (int x = 1; x <= fb->width-1; x++) {
+						for (int y = 1; y <= fb->height-1; y++) {
+
+							// Get source pixels to calculate the intensity and direction
+							i = y * imgblur->w + (x - 1); 	// imgblur adress from coordinates
+							pix[1] = imgblur->item[i]; 		// pixel left
+
+							i = (y - 1) * imgblur->w + x; 	// imgblur adress from coordinates
+							pix[2] = imgblur->item[i]; 		// pixel above
+
+							i = y * imgblur->w + x; 		// imgblur adress from coordinates
+							pix[0] = imgblur->item[i]; 		// main pixel
+
+							// get value for x gradient
+							gradx = pix[0] - pix[1];
+
+							// get value for y gradient
+							grady = pix[0] - pix[2];
+
+							// Calculate gradient direction
+							// We want this rounded to 0,1,2,3 which represents 0, 45, 90, 135 degrees
+							//graddir = (int)(abs(atan2(grady, gradx)) + 0.22) * 80;
+							// atan2 approximation
+							if (max(abs(gradx), abs(grady)) == 0) {
+								tempa = 0;
+							}
+							else {
+								tempa = min(abs(gradx), abs(grady)) / max(abs(gradx), abs(grady));
+							}
+							temps = tempa * tempa;
+
+							tempr = ((-0.0464964749 * temps + 0.15931422) * temps - 0.327622764) * temps * tempa + tempa;
+
+							// Now sort out quadrant
+							if (abs(grady) > abs(gradx)) tempr = 1.57079637 - tempr;
+							if (gradx < 0) tempr = 3.14159274 - tempr;
+							if (grady < 0) tempr = -tempr;
+							graddir = (int)(abs(tempr) + 0.22) * 80;
+							imggraddir->item[i] = graddir;
+
+							// Calculate gradient
+							// grad = (int)sqrt(gradx * gradx + grady * grady) * 2;
+							// imggrad->item[i] = grad;
+
+								// Get absolute values for both gradients
+								gradx = abs(gradx);
+								grady = abs(grady);
+								// Calculate gradient length (hypotenuse=(short side * 0.414) + long side)
+								if (gradx > grady) {
+									grad = (grady * 414) / 1000 + gradx;
+								}
+								else {
+									grad = (gradx * 414) / 1000 + grady;
+								}
+							imggrad->item[i] = grad * 2;
+
+
+
+						}
+					}
+				}
+
+
+
+				//---------------------------------------------------------------------------------------------
+				// --------------------- Non-Maximal Suppression -----------------------
+				// Definitions
+				int sensitivity = 10;
+				int graddir = 0, grad = 0;
+
+				dl_matrix3du_t *imgnm = imgblur;				// Result image will re-use blurred image as a storage memory
+
+				// Get each pixel and apply the blur filter
+				for (int x = 2; x <= fb->width - 2; x++) {
+					for (int y = 2; y <= fb->height - 2; y++) {
+
+						i  = y * fb->width + x; 		// imggrad adress from coordinates
+
+						// First check that current pixel's gradient above the threshold
+						if (imggrad->item[i] >= sensitivity) {
+
+							// Get gradient direction
+							graddir = imggraddir->item[i];		// Remember this was multiplied by 80 for the sake of display
+
+							// If angle = 0
+							if (graddir == 0) {
+								// Is pixel local maximal
+
+								int j1 = (y-1) * fb->width + x; 		// imggrad adress from coordinates
+								int j2 = (y+1) * fb->width + x; 		// imggrad adress from coordinates
+
+								if (imggrad->item[i] >= imggrad->item[j1] && imggrad->item[i] >= imggrad->item[j2]) {
+									// Write pixel to as max
+									imgnm->item[i] = 255;
+									// Supress other two
+									imgnm->item[j1] = 0;
+									imgnm->item[j2] = 0;
+
+								}
+								else {
+									// Supress pixel
+									imgnm->item[i] = 0;
+								}
+							}
+
+							// If angle = 45 degrees
+							else if (graddir == 80) {
+								// Is pixel local maximal
+
+								int j1 = (y-1) * fb->width + (x+1); 		// imggrad adress from coordinates
+								int j2 = (y+1) * fb->width + (x-1); 		// imggrad adress from coordinates
+								if (imggrad->item[i] >= imggrad->item[j1] && imggrad->item[i] >= imggrad->item[j2]) {
+									// Write pixel to as max
+									imgnm->item[i] = 255;
+									// Supress other two
+									imgnm->item[j1] = 0;
+									imgnm->item[j2] = 0;
+
+								}
+								else {
+									// Supress pixel
+									imgnm->item[i] = 0;
+								}
+							}
+
+							// If angle = 90 degrees
+							else if (graddir == 160) {
+								// Is pixel local maximal
+
+								int j1 = y * fb->width + (x-1); 		// imggrad adress from coordinates
+								int j2 = y * fb->width + (x+1); 		// imggrad adress from coordinates
+								if (imggrad->item[i] >= imggrad->item[j1] && imggrad->item[i] >= imggrad->item[j2]) {
+									// Write pixel to as max
+									imgnm->item[i] = 255;
+									// Supress other two
+									imgnm->item[j1] = 0;
+									imgnm->item[j2] = 0;
+
+								}
+								else {
+									// Supress pixel
+									imgnm->item[i] = 0;
+								}
+							}
+
+							// If angle = 135 degrees
+							else if (graddir == 240) {
+								// Is pixel local maximal
+								int j1 = (y-1) * fb->width + (x-1); 		// imggrad adress from coordinates
+								int j2 = (y+1) * fb->width + (x+1); 		// imggrad adress from coordinates
+								if (imggrad->item[i] >= imggrad->item[j1] && imggrad->item[i] >= imggrad->item[j2]) {
+									// Write pixel to as max
+									imgnm->item[i] = 255;
+									// Supress other two
+									imgnm->item[j1] = 0;
+									imgnm->item[j2] = 0;
+
+								}
+								else {
+									// Supress pixel
+									imgnm->item[i] = 0;
+								}
+							}
+
+						}
+						else {
+
+							// Supress pixel
+							imgnm->item[i] = 0;
+						}
+
+					}
+				}
+
+
+
+			}
+
+
+
+
+
+			Serial.printf("[get_edged_shoot] Frame buffer from camera fb size is %u bytes\r\n", fb->len);
+
+			// Sobel operator matrixes
+		    int GX[3][3]={{-1, 0, 1},
+		                 {-2, 0, 2},
+		                 {-1, 0, 1}};
+		    int GY[3][3]={{ 1, 2, 1},
+		                 { 0, 0, 0},
+		                 {-1,-2,-1}};
+
+			dl_matrix3du_t *sobel_matrix_dx = dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// sobel transformation results (dX part)
+			if (!sobel_matrix_dx) {
+			  Serial.println("[get_edged_shoot] dl_matrix3du_alloc failed");
+			}
+			else{
+			  // do Sobel transform
+			  for (uint16_t y = 0; y < fb->height; y++)
+			  for (uint16_t x = 0; x < fb->width; x++) {
+
+				  uint32_t i = (y * fb->width + x); // fb->buf address from coordinates
+
+
+
+
+
+				  image_matrix->item[i*3+0] = (uint8_t) t;
+				  image_matrix->item[i*3+1] = (uint8_t) t;
+				  image_matrix->item[i*3+2] = (uint8_t) t;
+			  }
+			  size_t out_len = image_matrix->w * image_matrix->h * 3;
+			  free(jpeg_Out->buf);
+			  jpeg_Out->buf = NULL;
+			  if(!fmt2jpg(image_matrix->item, out_len, image_matrix->w, image_matrix->h, PIXFORMAT_RGB888, 80, &jpeg_Out->buf, &jpeg_Out->buf_len)){
+				  Serial.println("[HDR_2_jpeg] JPEG compression failed");
+			  }
+			  else{
+				  Serial.printf("[HDR_2_jpeg] JPEG compression done. Jpeg size is %i bytes\r\n", jpeg_Out->buf_len);
+			  }
+			}
+			dl_matrix3du_free(image_matrix);
+			image_matrix = NULL;
+
+
+
+	  }
+
+
+
+
+
+
+
+
+
+
 	  //Get required number of frames from camera and integrate desired region to HDR grayscale 16 bit image
 	  if(sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames])){
 		  return;
