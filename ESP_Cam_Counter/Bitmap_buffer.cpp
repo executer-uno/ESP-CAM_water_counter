@@ -116,3 +116,4 @@ esp_err_t BitmapBuff::Bitmap2JPEG(JPEG *jpeg_Out, uint8_t quality){
 	return ESP_OK;
 }
 
+

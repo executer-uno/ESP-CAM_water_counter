@@ -31,7 +31,7 @@ typedef struct {
 	size_t 	 buf_len;	// Buffer size
 	uint16_t width; 	// HDR image width
 	uint16_t height;	// HDR image height
-} JPEG;
+} JPEG;											// JPEG picture pointer (picture data, size, width and height)
 
 typedef struct {
 	unsigned short *buf;// Bitmap data pointer
@@ -42,14 +42,14 @@ typedef struct {
 
 	uint16_t width; 	//HDR image width
 	uint16_t height;	//HDR image height
-} HDR;
+} HDR;											// 16 bit image pointer with max and min brightness measurements
 
 typedef struct {
 	uint16_t X1;
 	uint16_t Y1;
 	uint16_t X2;
 	uint16_t Y2;
-} frame;
+} frame;										// Frame coordinates structure
 
 
 // Pixelformat is fixed to RGB888
@@ -76,7 +76,7 @@ public:
 	int height();
 	size_t len();
 
-	esp_err_t HDR2Bitmap(HDR *HDR_buf, frame *area_frame);	// Draws HDR image to bitmap buffer in area_frame window (crops if window too small)
+	esp_err_t HDR2Bitmap(HDR *HDR_buf, frame *area_frame);	// Draws HDR grayscale image to bitmap buffer in area_frame window (crops if window too small)
 	esp_err_t Bitmap2JPEG(JPEG *output, uint8_t quality);
 	esp_err_t Clear();
 	esp_err_t Fill(frame *area_frame, uint32_t color);

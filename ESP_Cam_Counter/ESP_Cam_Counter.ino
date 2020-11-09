@@ -1361,10 +1361,11 @@ esp_err_t sum_frames(HDR *fr_buf, bool show, frame *area_frame, uint8_t count) {
 
 //---------------------------------------------------- setup
 void setup() {
-
+													// Init serial port for debug output
   Serial.begin(115200);
   Serial.setDebugOutput(true);
 
+  	  	  	  	  	  	  	  	  	  	  	  	  	// Camera configuration
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -1409,11 +1410,14 @@ void setup() {
 	  fb = esp_camera_fb_get(); // take first shoot to initialize camera white balance
   }
 
+  // Camera initialized and first picture taken to get a correct white balance
+
   WiFi_Connect();
 
-  for (uint8_t dig = 0; dig < number_letter; dig++) {
-    Hemming[dig].dig_defined = 10; //заносим первоначально максимальное число вне диапазона 0-9
-  }
+
+
+
+  // Init web server
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
@@ -1581,15 +1585,8 @@ void setup() {
   server.onNotFound(notFound);
 
 
-  for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
-    Gas[i].m3 = 0;
-    Gas[i].minutes = 0;
-  }
-  Gas[0].minutes = 1; //подсчет времени сначала для текущего элемента
+  //init and get the local time
 
-  //Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
-
-  //init and get the time
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   // Set timezone to Ukraine EET
@@ -1600,7 +1597,7 @@ void setup() {
     return;
   }
 
-  // Initialize SPIFFS
+  // Initialize SPIFFS and restore parameters
   if(!SPIFFS.begin(true)){
     Serial.println("An Error has occurred while mounting SPIFFS");
   }
@@ -1617,7 +1614,7 @@ void setup() {
   // Start server
   server.begin();
 
-  // Prepare HDR buffer
+  // Prepare and allocate HDR buffer for cropped picture area
   area_frame.X1 = (int)V[V_CropX1];
   area_frame.Y1 = (int)V[V_CropY1];
   area_frame.X2 = (int)V[V_CropX2];
@@ -1638,6 +1635,21 @@ void setup() {
     Serial.printf("malloc succeeded for HDR frame_buf. Taken 8BIT chunks = %d\n", f8 - heap_caps_get_free_size(MALLOC_CAP_8BIT));
   }
 
+
+
+  // init internal memory and variables
+
+  for (uint8_t dig = 0; dig < number_letter; dig++) {
+    Hemming[dig].dig_defined = 10; //заносим первоначально максимальное число вне диапазона 0-9
+  }
+
+  for (uint16_t i = 0; i < size_m3; i++) { //обнулим буфер сохранения значений
+    Gas[i].m3 = 0;
+    Gas[i].minutes = 0;
+  }
+  Gas[0].minutes = 1; //подсчет времени сначала для текущего элемента
+
+  //Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
 
 
   // Take first photo immediately
@@ -1818,14 +1830,11 @@ void loop() {
 
 	  takeNewPhoto = false;
 
-	  if(sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames])){		//Get required number of frames from camera and integrate them
+	  //Get required number of frames from camera and integrate desired region to HDR grayscale 16 bit image
+	  if(sum_frames(&frame_buf, true, &area_frame, V[V_number_of_sum_frames])){
 		  return;
 	  }
 	  Serial.printf("HDR image: Max bright pixel =%d, Min bright pixel=%d\r\n", frame_buf.max, frame_buf.min);
-
-	  //if(HDR_2_jpeg(&frame_buf, true, &jpeg_crop_HDR)){		//Itermediate HDR cropped picture to jpeg buffer for browser
-	  //		  return;
-	  //}
 
 	  frame window_out;
 	  window_out.X1 = 0;
@@ -2155,3 +2164,4 @@ void jpegRender(HDR *DestBuff, frame *area_frame) {
   Serial.print  ("[jpegRender] Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
 
 }
+
