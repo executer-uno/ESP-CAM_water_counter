@@ -1895,7 +1895,7 @@ void loop() {
 				dl_matrix3du_t *imgblur 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Gaussian blurred image and result image
 				dl_matrix3du_t *imggraddir 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients directions
 				dl_matrix3du_t *imggrad 	= dl_matrix3du_alloc(1, fb->width, fb->height, 1);		// Image with gradients magnitudes
-				dl_matrix3du_t *imgnm 		= imgblur;													// Result image will re-use blurred image as a storage memory
+				dl_matrix3du_t *imgnm 		= imgblur;												// Result image will re-use blurred image as a storage memory
 
 				if (!imgblur || !imggraddir || !imggrad) {
 					Serial.println("[get_edged_shoot] dl_matrix3du_alloc failed");
@@ -2138,10 +2138,12 @@ void loop() {
 				// By http://www.keymolen.com/2013/05/hough-transformation-c-implementation.html
 
 				//Create the accu
-				int _img_w = fb->width;
+				int _img_w = fb->width;			// Source image dimensions
 				int _img_h = fb->height;
 
-				double hough_h = ((sqrt(2.0) * (double)(_img_h>_img_w?_img_h:_img_w)) / 2.0);
+				int hough_h = round((sqrt(2.0) * (double)(_img_h>_img_w?_img_h:_img_w)) / 2.0);
+
+												// Hough plane dimensions calculated from source image size:
 				int _accu_h = hough_h * 2.0; 	// -ro -> +ro
 				int _accu_w = 180;				// thetta 0..180
 
@@ -2162,18 +2164,19 @@ void loop() {
 							int i  = y * fb->width + x; 		// imgnm adress from coordinates
 
 
-							if( imgnm->item[i] > 250 ){
-								for(int t=0;t<180;t++){
+							if( imgnm->item[i] > 250 ){			// if source pixel is bright
+
+								for(int t=0;t<180;t++){			// thetta 0..180 in Hough plane
 
 									#include <math.h>
-									#define DEG2RAD (M_PI/180.0f)
+									#define DEG2RAD (314/180)
 
-									double r = 0.0;
-									r += ((double)x - center_x) * std::cos((double)t * DEG2RAD);
-									r += ((double)y - center_y) * std::sin((double)t * DEG2RAD);
+									int r = 0;
+									r += (x - center_x) * trigonomFuncs.cos(t * DEG2RAD);
+									r += (y - center_y) * trigonomFuncs.sin(t * DEG2RAD);
 
-									int j =  round(r + hough_h) * 180.0 + t; 		// _accu adress from coordinates
-									_accu->item[j]++;
+									int j =  (r + hough_h) * 180.0 + t; 		// _accu Address from coordinates
+									_accu->item[j]++;			// add brightness to hough plane pixels
 								}
 							}
 						}
