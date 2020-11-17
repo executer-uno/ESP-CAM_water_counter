@@ -39,11 +39,15 @@
 // JPEG decoder library
 #include <JPEGDecoder.h>
 
+#include "trigonometry.h"
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 7200;
 const int   daylightOffset_sec = 3600; //летнее время 3600;
 
 struct tm timeinfo; //структура времени записи кольцевого буфера
+
+trigonom trigonomFuncs(50);
 
 #define info_first 2 ////строка вывода результатов ширины и высоты цифр
 #define info_result 58 //строка вывода результатов распознавания
@@ -1652,6 +1656,8 @@ void setup() {
   //Gas_minute_Ticker.attach(60, m3_calculate); //вызывать расчета объма газа каждую минуту 60
 
 
+
+
   // Take first photo immediately
   takeNewPhoto = true;
 }
@@ -2158,7 +2164,7 @@ void loop() {
 									r += ((double)y - center_y) * std::sin((double)t * DEG2RAD);
 
 									int j =  round(r + hough_h) * 180.0 + t; 		// _accu adress from coordinates
-									_accu[j]++;
+									_accu->item[j]++;
 								}
 							}
 						}
