@@ -1369,6 +1369,15 @@ void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
 
+
+  // Check trigonometry functions
+  Serial.printf(PSTR("\n\n[SETUP] Check trigonometry output:\n"));
+  uint32_t tcheck = clock();
+  for(int i=0; i<314*2; i+=10){
+	 Serial.printf("argument= %i; Sin(a)=%i; Cos(a)=%i\n", i, trigonomFuncs.sin(i), trigonomFuncs.cos(i));
+  }
+  Serial.printf("[SETUP] Summary trigonometry time: %lu ms\n", clock() - tcheck);
+
   	  	  	  	  	  	  	  	  	  	  	  	  	// Camera configuration
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;

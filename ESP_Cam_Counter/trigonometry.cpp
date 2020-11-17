@@ -9,6 +9,7 @@
 #include "trigonometry.h"
 //#include <math.h>
 
+#define intPI	314
 
 trigonom::trigonom(uint8_t precision){
 
@@ -26,18 +27,33 @@ trigonom::trigonom(uint8_t precision){
 
 }
 
-
 trigonom::~trigonom(){
 
 	delete[] lookup;
 
 }
 
+int trigonom::sin(int rad){
 
-int trigonom::cos(int rad){
-	return sin(rad+PI/2);
+	// rad = PI = 314
+
+	uint8_t i;					// lookup table index
+	int sign = 1;
+	int radtrunk = rad % intPI;
+
+	if(radtrunk < 0){
+		sign = -1;
+	}
+
+	radtrunk = abs(radtrunk);
+
+	radtrunk = radtrunk>(intPI/2) ? intPI-radtrunk : radtrunk;
+
+	i = radtrunk * buf_len / (intPI/2);
+
+    return lookup[i]*sign;
 }
 
-int trigonom::sin(int rad){
-	return rad;
+int trigonom::cos(int rad){
+	return sin(rad+(intPI/2));
 }
