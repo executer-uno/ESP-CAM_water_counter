@@ -44,6 +44,7 @@ public:
 	esp_err_t 	Fill(uint32_t color);
 
 	esp_err_t 	doBlur();							// Apply Gaussian blur to image
+	esp_err_t 	doGradPass(int sensitivity);		// Apply gradient intensity non-maximal suppression (sensitivity = 10 default)
 
 	esp_err_t	begin(framesize_t framesize, pixformat_t pixformat);	// init buffer
 };
