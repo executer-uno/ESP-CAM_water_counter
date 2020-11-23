@@ -43,6 +43,8 @@ public:
 	esp_err_t 	FillFromImg(ImgTransform pImage);	// Fills picture data from another buffer
 	esp_err_t 	Fill(uint32_t color);
 
+	esp_err_t 	doBlur();							// Apply Gaussian blur to image
+
 	esp_err_t	begin(framesize_t framesize, pixformat_t pixformat);	// init buffer
 };
 
