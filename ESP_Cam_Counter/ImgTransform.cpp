@@ -356,3 +356,83 @@ esp_err_t ImgTransform::doGradPass(int sensitivity){
 
 	return ESP_OK;
 }
+
+
+
+//---------------------------------------------------------------------------------------------
+//---------------------- The Hough Transformation ---------------------------------------------
+//------ By http://www.keymolen.com/2013/05/hough-transformation-c-implementation.html --------
+//---------------------------------------------------------------------------------------------
+esp_err_t ImgTransform::doHough(){
+
+	#define DEG2RAD (314/180)
+	trigonom trigonomFuncs(50);
+
+	// Init operation timer
+	lastOpTime = 0;
+	uint64_t OpStartStamp = millis();
+
+	if(image_matrix == NULL) return ESP_ERR_INVALID_STATE;					// Object not initialized
+
+	// Allocate memory for result hough plane
+	int _img_w = image_matrix->w;											// Source image dimensions
+	int _img_h = image_matrix->h;
+
+	int hough_h = round((sqrt(2.0) * (double)(_img_h>_img_w?_img_h:_img_w)) / 2.0);
+
+	// Hough plane dimensions calculate from source image size:
+	int _accu_h = hough_h * 2.0; 											// -ro -> +ro
+	int _accu_w = 180;														// thetta 0..180
+
+
+	dl_matrix3du_t *_accu 	= dl_matrix3du_alloc(1, _accu_w, _accu_h, 1);	// Hough space image transformation
+
+	if (!_accu) {
+		Serial.println(PSTR("[ImgTransform::doHough] dl_matrix3du_alloc failed"));
+		return ESP_ERR_NO_MEM;
+	}
+
+	double center_x = _img_w/2;
+	double center_y = _img_h/2;
+
+	for(int y=0;y<_img_h;y++){
+		for(int x=0;x<_img_w;x++){
+
+			int i  = y * image_matrix->stride + x; 							// image_matrix address from coordinates
+
+			if( image_matrix->item[i] > 250 ){								// if source pixel is bright
+				for(int t=0;t<180;t++){										// thetta 0..180 in Hough plane
+
+					int r = 0;
+					r += (x - center_x) * trigonomFuncs.cos(t * DEG2RAD);
+					r += (y - center_y) * trigonomFuncs.sin(t * DEG2RAD);
+
+					int j =  (r + hough_h) * _accu->stride + t; 			// _accu Address from coordinates
+					if(_accu->item[j]<252){
+						_accu->item[j]++;									// add brightness to hough plane pixels
+					}
+					else{
+						_accu->item[j]=255;									// limitate brightness on maximum level
+					}
+				}
+			}
+		}
+	}
+
+	// Hough space buffer will be the main image, and source image will be wiped out and memory released
+	dl_matrix3du_free(image_matrix);
+	image_matrix 	= _accu;
+	_accu			= NULL;
+
+	pImage.bytes_per_pixel 	= 1;
+	pImage.format			= FB_RGB888;
+	pImage.width 			= image_matrix->w;
+	pImage.height			= image_matrix->h;
+	pImage.data 			= image_matrix->item;
+
+	thisPtr 				= &image_matrix;
+
+	lastOpTime = millis() - OpStartStamp;
+
+	return ESP_OK;
+}

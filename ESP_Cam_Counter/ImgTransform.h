@@ -14,6 +14,7 @@
 #include "fb_gfx.h"
 #include "fd_forward.h"
 //#include "fr_forward.h"
+#include "trigonometry.h"
 
 
 
@@ -34,19 +35,19 @@ public:
 	~ImgTransform();
 	dl_matrix3du_t *thisPtr;
 
-	int 		width();
-	int 		height();
-	uint64_t 	lastOpMs();		// Return last operation time in milliseconds
-	size_t 		len();
+	int 			width();
+	int 			height();
+	uint64_t 		lastOpMs();		// Return last operation time in milliseconds
+	size_t 			len();
 
-	esp_err_t 	FillFromFB(camera_fb_t pImage);		// Fills picture data from camerera's frame buffer
-	esp_err_t 	FillFromImg(ImgTransform pImage);	// Fills picture data from another buffer
-	esp_err_t 	Fill(uint32_t color);
+	esp_err_t 		FillFromFB(camera_fb_t pImage);		// Fills picture data from camerera's frame buffer
+	esp_err_t 		FillFromImg(ImgTransform * pImage);	// Fills picture data from another buffer
+	esp_err_t 		Fill(uint32_t color);
 
-	esp_err_t 	doBlur();							// Apply Gaussian blur to image
-	esp_err_t 	doGradPass(int sensitivity);		// Apply gradient intensity non-maximal suppression (sensitivity = 10 default)
-
-	esp_err_t	begin(framesize_t framesize, pixformat_t pixformat);	// init buffer
+	esp_err_t 		doBlur();							// Apply Gaussian blur to image
+	esp_err_t 		doGradPass(int sensitivity);		// Apply gradient intensity non-maximal suppression (sensitivity = 10 default)
+	esp_err_t		doHough();							// Apply Hough transformation to image
+	esp_err_t		begin(framesize_t framesize, pixformat_t pixformat);	// init buffer
 };
 
 
